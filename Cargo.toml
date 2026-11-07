@@ -5,8 +5,11 @@ edition = "2024"
 rust-version = "1.88"
 
 [dependencies]
-gix = { version = "0.90", default-features = false, features = ["sha1", "index", "status"] }
+gix = { version = "0.90", default-features = false, features = ["sha1", "index", "status", "credentials", "blocking-network-client", "blocking-http-transport-curl"] }
 regex = "1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+curl = { version = "0.4", default-features = false, features = ["ssl", "static-curl", "static-ssl"] }
 
 [profile.release]
 strip = "none"

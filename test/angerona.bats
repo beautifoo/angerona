@@ -423,6 +423,25 @@ push_line() { printf '%s %s %s %s\n' "$2" "$(git rev-parse "$1")" "$2" "$zero"; 
 	[ "$status" -eq 0 ]
 }
 
+@test "check-push leaves out what the remote already holds" {
+	repo
+	commit a "for globex"
+	git push -q --no-verify origin main
+	git commit -q --allow-empty -m "neutral"
+	run "$AG" check-push origin < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 0 ]
+}
+
+@test "check-push to a URL that holds nothing scans the whole history" {
+	repo
+	commit a "for globex"
+	git push -q --no-verify origin main
+	git init -q --bare "$BATS_TEST_TMPDIR/empty.git"
+	run "$AG" check-push "$BATS_TEST_TMPDIR/empty.git" < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 1 ]
+	has "a:1: globex"
+}
+
 # --- what is published, beyond lines of text --------------------------------
 
 @test "check-staged refuses when the commit's identity names a term" {
@@ -602,6 +621,17 @@ raw_commit() {
 	has "b:1: globex"
 }
 
+@test "check-push to a path ignores stale refs left under its name" {
+	repo
+	commit a "for globex"
+	git push -q --no-verify origin main
+	git update-ref refs/remotes/backup/main HEAD
+	git init -q --bare backup
+	run "$AG" check-push backup < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 1 ]
+	has "a:1: globex"
+}
+
 @test "check-push reads a ref line whose source has a space" {
 	repo
 	commit a "for globex"
@@ -763,6 +793,62 @@ hooks() {
 	[ "$status" -eq 1 ]
 	has "git failed reading the push"
 	has "$id"
+}
+
+@test "check-push asks the remote what it holds, not stale local refs" {
+	repo
+	commit a "for globex"
+	git push -q origin main
+	git init -q --bare "$BATS_TEST_TMPDIR/new.git"
+	git remote set-url origin "$BATS_TEST_TMPDIR/new.git"
+	run "$AG" check-push origin "$BATS_TEST_TMPDIR/new.git" < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 1 ]
+	has "a:1: globex"
+}
+
+@test "check-push leaves out what a URL already holds" {
+	repo
+	commit a "for globex"
+	git push -q origin main
+	git commit -q --allow-empty -m neutral
+	run "$AG" check-push "$BATS_TEST_TMPDIR/origin.git" < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 0 ]
+}
+
+@test "check-push asks the URL it was given, without rewriting it again" {
+	repo
+	commit a "for globex"
+	git push -q origin main
+	git init -q --bare "$BATS_TEST_TMPDIR/other.git"
+	git config --global "url.$BATS_TEST_TMPDIR/other.git.insteadOf" "$BATS_TEST_TMPDIR/origin.git"
+	git commit -q --allow-empty -m neutral
+	run "$AG" check-push origin "$BATS_TEST_TMPDIR/origin.git" < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 0 ]
+}
+
+@test "check-push scans the whole history when it can't ask the remote, and says so" {
+	repo
+	commit a "for globex"
+	git push -q origin main
+	git commit -q --allow-empty -m neutral
+	run "$AG" check-push origin "$BATS_TEST_TMPDIR/nowhere.git" < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 1 ]
+	has "can't ask $BATS_TEST_TMPDIR/nowhere.git what it holds"
+}
+
+@test "check-push keeps a URL's credentials out of its note" {
+	repo
+	commit a "for globex"
+	git push -q origin main
+	git commit -q --allow-empty -m neutral
+	run "$AG" check-push origin "http://user:s3cret@127.0.0.1:9/r.git" < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 1 ]
+	has "can't ask http://"
+	lacks "s3cret"
+	# A token can sit in the user field.
+	run "$AG" check-push origin "https://t0ken@127.0.0.1:9/r.git" < <(push_line HEAD refs/heads/main)
+	has "can't ask https://"
+	lacks "t0ken"
 }
 
 @test "check-msg skips the comments and diff git strips from a message" {

@@ -65,7 +65,7 @@ fn main() {
                 .unwrap_or_else(|e| fail(&format!("git failed reading the commit ({e})"), 1)),
             1,
         ),
-        ("check-push", Some(_)) => {
+        ("check-push", Some(remote)) => {
             let mut lines = Vec::new();
             io::stdin()
                 .read_to_end(&mut lines)
@@ -76,7 +76,17 @@ fn main() {
                 .collect();
             finish(
                 &staged::open(Path::new("."))
-                    .and_then(|repo| push::items(&repo, &refs, &[]))
+                    .and_then(|repo| {
+                        // A push of only deletions sends nothing: no need to ask.
+                        let held = if refs.is_empty() {
+                            Vec::new()
+                        } else {
+                            let url = args.get(2).filter(|a| !a.is_empty());
+                            let url = url.map(|u| u.to_string_lossy());
+                            push::held(&repo, &remote.to_string_lossy(), url.as_deref())
+                        };
+                        push::items(&repo, &refs, &held)
+                    })
                     .unwrap_or_else(|e| fail(&format!("git failed reading the push ({e})"), 1)),
                 1,
             )

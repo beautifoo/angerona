@@ -14,11 +14,12 @@ repo, and it refuses a commit or push that names a term on the list:
   git keeps both, and so does `check-msg`.)
 - `check-staged` reads each staged file in full, each file name, and the
   author the commit will carry; `check-push` reads the committer.
-- `check-push` reads every object the push sends: each commit and tag as
-  stored, every header and identity included, but not a commit's
-  signature, whose random base64 can spell a short term by chance; each
-  file version in full; and every file and ref name. It scans each pushed
-  ref's whole history.
+- `check-push` reads every object the push sends that the remote doesn't
+  hold yet: each commit and tag as stored, every header and identity
+  included, but not a commit's signature, whose random base64 can spell a
+  short term by chance; each file version in full; and every file and ref
+  name. It asks the remote what it holds; when it can't, it scans each
+  pushed ref's whole history.
 
 A binary file, one with a NUL byte in its first 8000 bytes as git reckons
 it, is read only for its runs of 16 or more readable characters. That keeps

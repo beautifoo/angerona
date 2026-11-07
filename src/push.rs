@@ -2,6 +2,8 @@ use crate::scan::{Item, Label, blob_item, fail};
 use gix::{
     ObjectId,
     objs::{CommitRefIter, Kind, TagRefIter, TreeRefIter},
+    progress::Discard,
+    remote::{Direction, fetch::Tags, ref_map},
 };
 use std::{
     collections::{BTreeSet, HashSet},
@@ -55,6 +57,69 @@ pub fn strip_signature(commit: &[u8]) -> Vec<u8> {
         out.extend_from_slice(line);
     }
     out
+}
+
+// Whether gix reads the URL as git does. It doesn't percent-decode a file://
+// path, so it would list another repo (a git:// path with a % is left unasked
+// too, which only means more is scanned), and it can't run a remote helper,
+// which a "<helper>::" prefix names.
+pub fn may_ask(url: &str) -> bool {
+    let encoded = (url.starts_with("file://") || url.starts_with("git://")) && url.contains('%');
+    let helper = url.find("::").is_some_and(|i| !url[..i].contains('/'));
+    !encoded && !helper
+}
+
+// The objects the remote says it holds, and this repo has. It is asked at the
+// URL git gives, which git has already rewritten, so it isn't rewritten again,
+// or else by its name. Remote-tracking refs are not trusted: they go stale,
+// and a remote's URL can change under them. If the remote can't be asked,
+// nothing is held, and each pushed ref's whole history is scanned.
+pub fn held(repo: &gix::Repository, remote: &str, url: Option<&str>) -> Vec<ObjectId> {
+    let target = url.unwrap_or(remote);
+    let vcs = repo
+        .config_snapshot()
+        .string(&format!("remote.{remote}.vcs"))
+        .is_some();
+    let listed = (may_ask(target) && !vcs)
+        .then(|| {
+            let r = match url {
+                Some(url) => repo.remote_at_without_url_rewrite(url).ok()?,
+                None => repo.find_fetch_remote(Some(remote.into())).ok()?,
+            };
+            let options = ref_map::Options {
+                prefix_from_spec_as_filter_on_remote: false,
+                ..Default::default()
+            };
+            let (map, _) = r
+                .with_fetch_tags(Tags::None)
+                .connect(Direction::Fetch)
+                .ok()?
+                .ref_map(Discard, options)
+                .ok()?;
+            Some(map.remote_refs)
+        })
+        .flatten();
+    let Some(refs) = listed else {
+        // Git gives the URL with its credentials, which can sit in the user
+        // field too: a URL is shown without either.
+        let shown = gix::url::parse(target).map_or(target.to_string(), |mut u| {
+            u.set_user(None);
+            u.set_password(None);
+            u.to_bstring().to_string()
+        });
+        eprintln!("angerona: note: can't ask {shown} what it holds, scanning the whole history");
+        return Vec::new();
+    };
+    // A tag's ref names the tag and the commit it peels to, as ls-remote does.
+    refs.iter()
+        .flat_map(|r| {
+            let (_, target, peeled) = r.unpack();
+            [target, peeled]
+        })
+        .flatten()
+        .filter(|id| repo.has_object(id))
+        .map(ToOwned::to_owned)
+        .collect()
 }
 
 // What the push sends, as `git rev-list --objects <tips> ^<held>` lists it,
@@ -238,6 +303,16 @@ mod tests {
             ("refs/heads/a b", "1234567", "refs/heads/x")
         );
         assert!(parse_ref_line(&format!("(delete) {Z} refs/heads/x 1234567")).is_none());
+    }
+
+    #[test]
+    fn does_not_ask_urls_gix_would_misread() {
+        assert!(!may_ask("file:///srv/p%20q.git"));
+        assert!(!may_ask("git://host/p%41.git"));
+        assert!(!may_ask("codecommit::us-east-1://repo"));
+        assert!(may_ask("https://github.com/o/r.git"));
+        assert!(may_ask("git@github.com:o/r.git"));
+        assert!(may_ask("/srv/plain.git"));
     }
 
     #[test]
