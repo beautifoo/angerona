@@ -1,0 +1,15 @@
+[package]
+name = "angerona"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+
+[dependencies]
+regex = "1"
+
+[profile.release]
+strip = "none"
+
+[lints.rust]
+# codesign -f in .cargo/link-hardened says it replaced the linker's signature.
+linker_messages = "allow"

@@ -1,0 +1,24 @@
+name: test
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# The guard's own tests, against a fake term list.
+jobs:
+  bats:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install bats
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then brew install bats-core; else sudo apt-get update && sudo apt-get install -y bats; fi
+      - run: git --version && cargo test --locked
+      - run: cargo build --release --locked
+      - run: AG=$PWD/target/release/angerona bats test/

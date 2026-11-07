@@ -1,0 +1,7 @@
+#!/bin/sh
+# Link as usual, then strip and re-sign ad hoc with the hardened runtime,
+# which blocks DYLD_INSERT_LIBRARIES. rustc's own strip would drop the flag,
+# hence strip = "none" in Cargo.toml.
+cc "$@" || exit
+while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done
+strip -S "$out" && exec codesign -s - -f -o runtime "$out"
