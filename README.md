@@ -6,12 +6,21 @@ out of what you publish.
 Angerona was the Roman goddess shown with her mouth sealed, who kept the secret
 name of Rome.
 
-It is one Rust binary. git runs it as a hook from your global config, in every
-repo, and it refuses a commit whose message names a term on the list:
+It is one Rust binary. git runs it as hooks from your global config, in every
+repo, and it refuses a commit that names a term on the list:
 
 - `check-msg` reads the commit message, less its `#` comment lines and
   anything below `commit -v`'s scissors line. (With `commit -m` or `-F`,
   git keeps both, and so does `check-msg`.)
+- `check-staged` reads each staged file in full, each file name, and the
+  author the commit will carry.
+
+A binary file, one with a NUL byte in its first 8000 bytes as git reckons
+it, is read only for its runs of 16 or more readable characters. That keeps
+the text a program wrote into it, such as an image's XMP or a PDF's
+properties, and leaves out its compressed bytes, where a short term would
+turn up by chance. A file that starts with a UTF-16 byte-order mark is read
+as text.
 
 The list lives outside every repo, so the names it guards are never in one.
 
@@ -81,11 +90,13 @@ back, every commit is refused.
 ```sh
 git config set --global hook.angerona-msg.event commit-msg
 git config set --global hook.angerona-msg.command '~/.local/bin/angerona check-msg'
+git config set --global hook.angerona-staged.event pre-commit
+git config set --global hook.angerona-staged.command '~/.local/bin/angerona check-staged'
 ```
 
-A repo's own hooks still run, after this one.
+A repo's own hooks still run, after these.
 
-Where the names belong, in work repos for example, switch the hook off with
+Where the names belong, in work repos for example, switch the hooks off with
 a config that your global config includes:
 
 ```
@@ -98,23 +109,29 @@ and, in `config-work`:
 ```
 [hook "angerona-msg"]
 	enabled = false
+[hook "angerona-staged"]
+	enabled = false
 ```
 
-A repo's own config (`.git/config`) can switch the hook off too.
+A repo's own config (`.git/config`) can switch the hooks off too.
 
 ## What it won't catch
 
-It matches text, and only what passes through its hook:
+It matches text, and only what passes through its hooks:
 
 - a term rephrased, abbreviated, misspelt or encoded, or with an invisible
   character inside it, such as a soft hyphen or a zero-width space;
-- what skips the hook: `--no-verify`, a repo's own config switching it
+- a term in a binary file that isn't in a run of 16 or more readable
+  characters: a short metadata field, text in a zip, an image's pixels, or
+  most of a PDF's pages;
+- what skips the hooks: `--no-verify`, a repo's own config switching them
   off, a git older than 2.54, anything that controls git's environment, the
   GitHub web UI, or any other tool that writes to the remote.
 
 ## Exit codes
 
-0 passes. 1 refuses, and says where each hit is. 2 is a usage error.
+0 passes. 1 refuses, and says where each hit is: `path:line: match`.
+2 is a usage error.
 
 ## Tests
 

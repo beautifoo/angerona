@@ -1,4 +1,6 @@
+use crate::staged;
 use regex::bytes::Regex;
+use std::path::Path;
 
 // What git keeps of a commit message: with an editor, nothing after the
 // scissors line and no comment line. Comment lines turn into empty lines, so
@@ -28,16 +30,15 @@ pub fn message(text: &[u8], editor_used: bool, comment: &str) -> Vec<u8> {
 // Git itself rejects an empty one and picks a character for auto, so both
 // fall back to "#" rather than blank every line.
 pub fn comment_string() -> String {
-    let Ok(mut repo) = gix::discover(".") else {
+    let Ok(repo) = staged::open(Path::new(".")) else {
         return "#".into();
     };
-    repo.objects.ignore_replacements = true;
     let config = repo.config_snapshot();
     config
         .string("core.commentString")
         .or_else(|| config.string("core.commentChar"))
         .map(|v| v.to_string())
-        .filter(|v| !v.is_empty() && v != "auto")
+        .filter(|v| !v.is_empty() && !v.eq_ignore_ascii_case("auto"))
         .unwrap_or_else(|| "#".into())
 }
 

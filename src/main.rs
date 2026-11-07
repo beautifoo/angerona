@@ -1,12 +1,14 @@
 mod list;
 mod msg;
 mod scan;
+mod staged;
 
 use scan::{Item, Label, fail, finish};
 use std::{
     env, fs,
     io::{self, Read, Write},
     panic,
+    path::Path,
     process::exit,
 };
 
@@ -56,8 +58,14 @@ fn main() {
                 1,
             )
         }
+        ("check-staged", _) => finish(
+            &staged::open(Path::new("."))
+                .and_then(|repo| staged::items(&repo))
+                .unwrap_or_else(|_| fail("git failed reading the commit", 1)),
+            1,
+        ),
         _ => {
-            eprintln!("usage: angerona check | check-msg FILE");
+            eprintln!("usage: angerona check | check-msg FILE | check-staged");
             exit(2)
         }
     }
