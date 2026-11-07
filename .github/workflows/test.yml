@@ -21,4 +21,7 @@ jobs:
           if [ "$RUNNER_OS" = macOS ]; then brew install bats-core; else sudo apt-get update && sudo apt-get install -y bats; fi
       - run: git --version && cargo test --locked
       - run: cargo build --release --locked
+      # Older, the tests that need config hooks skip, and CI would pass unseen.
+      - name: git is 2.54 or later
+        run: git --version | awk '{split($3, v, "."); exit !(v[1] > 2 || (v[1] == 2 && v[2] >= 54))}'
       - run: AG=$PWD/target/release/angerona bats test/

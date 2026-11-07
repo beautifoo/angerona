@@ -1,5 +1,6 @@
 mod list;
 mod msg;
+mod push;
 mod scan;
 mod staged;
 
@@ -61,11 +62,27 @@ fn main() {
         ("check-staged", _) => finish(
             &staged::open(Path::new("."))
                 .and_then(|repo| staged::items(&repo))
-                .unwrap_or_else(|_| fail("git failed reading the commit", 1)),
+                .unwrap_or_else(|e| fail(&format!("git failed reading the commit ({e})"), 1)),
             1,
         ),
+        ("check-push", Some(_)) => {
+            let mut lines = Vec::new();
+            io::stdin()
+                .read_to_end(&mut lines)
+                .unwrap_or_else(|_| fail("can't read stdin", 1));
+            let refs: Vec<_> = String::from_utf8_lossy(&lines)
+                .lines()
+                .filter_map(push::parse_ref_line)
+                .collect();
+            finish(
+                &staged::open(Path::new("."))
+                    .and_then(|repo| push::items(&repo, &refs, &[]))
+                    .unwrap_or_else(|e| fail(&format!("git failed reading the push ({e})"), 1)),
+                1,
+            )
+        }
         _ => {
-            eprintln!("usage: angerona check | check-msg FILE | check-staged");
+            eprintln!("usage: angerona check | check-msg FILE | check-staged | check-push REMOTE");
             exit(2)
         }
     }

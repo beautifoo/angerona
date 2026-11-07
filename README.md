@@ -1,19 +1,24 @@
 # angerona
 
 Keeps the names on a private list, such as an employer, a client or a codename,
-out of what you publish.
+out of everything you publish with git.
 
 Angerona was the Roman goddess shown with her mouth sealed, who kept the secret
 name of Rome.
 
 It is one Rust binary. git runs it as hooks from your global config, in every
-repo, and it refuses a commit that names a term on the list:
+repo, and it refuses a commit or push that names a term on the list:
 
 - `check-msg` reads the commit message, less its `#` comment lines and
   anything below `commit -v`'s scissors line. (With `commit -m` or `-F`,
   git keeps both, and so does `check-msg`.)
 - `check-staged` reads each staged file in full, each file name, and the
-  author the commit will carry.
+  author the commit will carry; `check-push` reads the committer.
+- `check-push` reads every object the push sends: each commit and tag as
+  stored, every header and identity included, but not a commit's
+  signature, whose random base64 can spell a short term by chance; each
+  file version in full; and every file and ref name. It scans each pushed
+  ref's whole history.
 
 A binary file, one with a NUL byte in its first 8000 bytes as git reckons
 it, is read only for its runs of 16 or more readable characters. That keeps
@@ -28,9 +33,10 @@ The list lives outside every repo, so the names it guards are never in one.
 
 git 2.54 or later. Tested on macOS and Linux.
 
-An older git skips config-based hooks without a word, so a commit made with
-it skips the guard. Update it, with `brew install git` for example. A git an
-app bundles is not on your PATH: point the app at a newer git instead.
+An older git skips config-based hooks without a word, so a commit or push
+made with it skips the guard. Update it, with `brew install git` for
+example. A git an app bundles is not on your PATH: point the app at a newer
+git instead.
 
 ## Install
 
@@ -69,7 +75,8 @@ digits are Unicode ones, and case folds across scripts, so `Zürich` matches
 `ZÜRICH` but not `Zurich`. List each spelling you want caught.
 
 Keep terms distinctive. A short one also matches inside everyday words, as
-`ace` does in `place`.
+`ace` does in `place`, and one made only of digits and the letters a to f
+can turn up inside the commit hashes a push is scanned with.
 
 Without the list, with no term in it, or with a line it can't read (one with
 no letter or digit, a tab, a carriage return inside it, or a `#` after a
@@ -83,7 +90,7 @@ chmod 600 ~/.config/angerona/terms.txt
 ```
 
 Keep a private backup, in a password manager for example: until the list is
-back, every commit is refused.
+back, every commit and push is refused.
 
 ## Wire it into git
 
@@ -92,6 +99,8 @@ git config set --global hook.angerona-msg.event commit-msg
 git config set --global hook.angerona-msg.command '~/.local/bin/angerona check-msg'
 git config set --global hook.angerona-staged.event pre-commit
 git config set --global hook.angerona-staged.command '~/.local/bin/angerona check-staged'
+git config set --global hook.angerona-push.event pre-push
+git config set --global hook.angerona-push.command '~/.local/bin/angerona check-push'
 ```
 
 A repo's own hooks still run, after these.
@@ -111,6 +120,8 @@ and, in `config-work`:
 	enabled = false
 [hook "angerona-staged"]
 	enabled = false
+[hook "angerona-push"]
+	enabled = false
 ```
 
 A repo's own config (`.git/config`) can switch the hooks off too.
@@ -125,13 +136,14 @@ It matches text, and only what passes through its hooks:
   characters: a short metadata field, text in a zip, an image's pixels, or
   most of a PDF's pages;
 - what skips the hooks: `--no-verify`, a repo's own config switching them
-  off, a git older than 2.54, anything that controls git's environment, the
-  GitHub web UI, or any other tool that writes to the remote.
+  off, a git older than 2.54, push options (`git push -o`), anything that
+  controls git's environment, the GitHub web UI, or any other tool that
+  writes to the remote.
 
 ## Exit codes
 
-0 passes. 1 refuses, and says where each hit is: `path:line: match`.
-2 is a usage error.
+0 passes. 1 refuses, and says where each hit is: `path:line: match`,
+`commit <sha>: match`, `ref <name>: match`. 2 is a usage error.
 
 ## Tests
 

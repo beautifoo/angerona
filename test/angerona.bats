@@ -1,6 +1,8 @@
 #!/usr/bin/env bats
 # angerona against a fake term list and throwaway repos. Run: bats test/
 
+zero=0000000000000000000000000000000000000000
+
 setup() {
 	AG=${AG:-$BATS_TEST_DIRNAME/../target/debug/angerona}
 	export XDG_CONFIG_HOME=$BATS_TEST_TMPDIR/config HOME=$BATS_TEST_TMPDIR/home
@@ -44,6 +46,9 @@ commit() { # FILE CONTENT [MESSAGE]
 	git add "$1"
 	git commit -qm "${3:-change $1}"
 }
+
+# The line git gives pre-push for pushing REV to REF.
+push_line() { printf '%s %s %s %s\n' "$2" "$(git rev-parse "$1")" "$2" "$zero"; }
 
 # --- the term list -----------------------------------------------------------
 
@@ -194,6 +199,36 @@ commit() { # FILE CONTENT [MESSAGE]
 	has "file quux.txt: quux"
 }
 
+@test "a pushed hit names the ref, tag or commit it is in" {
+	repo
+	commit a "for globex"
+	git commit -q --allow-empty -m $'neutral\n\nabout quux'
+	git tag -a -m "zorblax" t1
+	run "$AG" check-push origin < <(push_line t1 refs/tags/t1; push_line HEAD refs/heads/FROBCORP)
+	[ "$status" -eq 1 ]
+	has "ref refs/heads/FROBCORP: FROBCORP"
+	has "tag $(git rev-parse t1): zorblax"
+	has "a:1: globex"
+	has "commit $(git rev-parse HEAD): quux"
+}
+
+@test "check-push refuses a commit whose author names a term" {
+	repo
+	git commit -q --allow-empty -m neutral --author="Someone <someone@globex.example>"
+	run "$AG" check-push origin < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 1 ]
+	has "commit $(git rev-parse HEAD): globex"
+}
+
+@test "usage errors exit 2" {
+	run "$AG"
+	[ "$status" -eq 2 ]
+	run "$AG" check-msg
+	[ "$status" -eq 2 ]
+	run "$AG" check-push
+	[ "$status" -eq 2 ]
+}
+
 # --- check-msg ---------------------------------------------------------------
 
 @test "check-msg refuses a message naming a term" {
@@ -341,6 +376,53 @@ commit() { # FILE CONTENT [MESSAGE]
 	[ "$status" -eq 0 ]
 }
 
+# --- check-push --------------------------------------------------------------
+
+@test "check-push passes a clean branch" {
+	repo
+	commit a fine
+	run "$AG" check-push origin < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 0 ]
+}
+
+@test "check-push refuses a term in a ref name" {
+	repo
+	run "$AG" check-push origin < <(push_line HEAD refs/heads/globex)
+	[ "$status" -eq 1 ]
+	has "ref refs/heads/globex: globex"
+}
+
+@test "check-push refuses a term in a commit message" {
+	repo
+	git commit -q --allow-empty -m "for globex"
+	run "$AG" check-push origin < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 1 ]
+	has "commit $(git rev-parse HEAD): globex"
+}
+
+@test "check-push refuses a term in an added line" {
+	repo
+	commit a "for globex"
+	run "$AG" check-push origin < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 1 ]
+	has "a:1: globex"
+}
+
+@test "check-push refuses a term in a tag that another tag points at" {
+	repo
+	git tag -a -m "for globex" inner
+	git tag -a -m "neutral" outer inner
+	run "$AG" check-push origin < <(push_line outer refs/tags/outer)
+	[ "$status" -eq 1 ]
+	has "tag $(git rev-parse inner): globex"
+}
+
+@test "check-push passes a deletion" {
+	repo
+	run "$AG" check-push origin <<<"(delete) $zero refs/heads/globex $(git rev-parse HEAD)"
+	[ "$status" -eq 0 ]
+}
+
 # --- what is published, beyond lines of text --------------------------------
 
 @test "check-staged refuses when the commit's identity names a term" {
@@ -350,6 +432,34 @@ commit() { # FILE CONTENT [MESSAGE]
 	GIT_AUTHOR_EMAIL=me@globex.example run "$AG" check-staged
 	[ "$status" -eq 1 ]
 	has "identity: globex"
+}
+
+@test "a binary file is scanned for its runs of readable text, not refused" {
+	repo
+	printf 'PNG\000\001data\000' >pic.png
+	git add pic.png
+	run "$AG" check-staged
+	[ "$status" -eq 0 ]
+	printf 'PNG\000\001<dc:creator>the globex team</dc:creator>\000' >pic.png
+	git add pic.png
+	run "$AG" check-staged
+	[ "$status" -eq 1 ]
+	has "binary pic.png: globex"
+	git commit -qm "a picture"
+	run "$AG" check-push origin < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 1 ]
+	has "binary pic.png: globex"
+}
+
+@test "a term in a binary file's short runs, as random bytes spell one, passes" {
+	repo
+	printf 'PNG\000\001\217xGlObExq\377\000zorblax\000' >pic.png
+	git add pic.png
+	run "$AG" check-staged
+	[ "$status" -eq 0 ]
+	git commit -qm "a picture"
+	run "$AG" check-push origin < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 0 ]
 }
 
 @test "a file with no NUL in its first 8000 bytes is text, read in full" {
@@ -396,12 +506,159 @@ commit() { # FILE CONTENT [MESSAGE]
 	has "globex.txt: globex"
 }
 
+@test "check-push refuses a term in a file under a tag on a tree" {
+	repo
+	commit a "for globex"
+	git tag -a -m neutral treetag "HEAD^{tree}"
+	git reset -q --hard HEAD~1
+	run "$AG" check-push origin < <(push_line treetag refs/tags/treetag)
+	[ "$status" -eq 1 ]
+	has "a:1: globex"
+}
+
+@test "check-push refuses a term in a commit header git log never shows" {
+	repo
+	tree=$(git rev-parse 'HEAD^{tree}')
+	sha=$(printf 'tree %s\nparent %s\nauthor A <a@b> 1 +0000\ncommitter A <a@b> 1 +0000\nx-note globex\n\nneutral\n' \
+		"$tree" "$(git rev-parse HEAD)" | git hash-object -t commit -w --stdin)
+	run "$AG" check-push origin <<<"refs/heads/main $sha refs/heads/main $zero"
+	[ "$status" -eq 1 ]
+	has "commit $sha: globex"
+}
+
+# A commit object from HEADERS (printf format) and MESSAGE, on top of HEAD.
+raw_commit() {
+	printf "tree %s\nparent %s\nauthor A <a@b> 1 +0000\ncommitter A <a@b> 1 +0000\n$1\n%s\n" \
+		"$(git rev-parse 'HEAD^{tree}')" "$(git rev-parse HEAD)" "$2" | git hash-object -t commit -w --stdin
+}
+
+@test "check-push skips a commit's signature, whose base64 can spell a term by chance" {
+	repo
+	for h in gpgsig gpgsig-sha256; do
+		sha=$(raw_commit "$h -----BEGIN PGP SIGNATURE-----\n \n iQEzBAABCAAdglobexFiEE+x/Y\n -----END PGP SIGNATURE-----\n" neutral)
+		run "$AG" check-push origin <<<"refs/heads/main $sha refs/heads/main $zero"
+		[ "$status" -eq 0 ] || { echo "refused: $h"; return 1; }
+	done
+}
+
+@test "check-push still reads the headers and message after a signature" {
+	repo
+	sha=$(raw_commit "gpgsig -----BEGIN PGP SIGNATURE-----\n iQEz\n -----END PGP SIGNATURE-----\nx-note globex\n" neutral)
+	run "$AG" check-push origin <<<"refs/heads/main $sha refs/heads/main $zero"
+	[ "$status" -eq 1 ]
+	sha=$(raw_commit "gpgsig -----BEGIN PGP SIGNATURE-----\n iQEz\n -----END PGP SIGNATURE-----\n" $'neutral\n\ngpgsig globex\n iQEz globex')
+	run "$AG" check-push origin <<<"refs/heads/main $sha refs/heads/main $zero"
+	[ "$status" -eq 1 ]
+}
+
+@test "check-push reads the plain-text lines inside a signature" {
+	repo
+	sha=$(raw_commit "gpgsig -----BEGIN PGP SIGNATURE-----\n Comment: globex code signing\n \n iQEz\n -----END PGP SIGNATURE-----\n" neutral)
+	run "$AG" check-push origin <<<"refs/heads/main $sha refs/heads/main $zero"
+	[ "$status" -eq 1 ]
+	has "commit $sha: globex"
+}
+
+@test "a NUL byte doesn't hide what follows it" {
+	run "$AG" check <<<$'x\001Acme\nWidgets'
+	[ "$status" -eq 1 ]
+	printf 'x\000Acme\nWidgets\n' >"$BATS_TEST_TMPDIR/nul"
+	run "$AG" check <"$BATS_TEST_TMPDIR/nul"
+	[ "$status" -eq 1 ]
+	repo
+	printf 'release\000 globex\n' >"$BATS_TEST_TMPDIR/tagmsg"
+	git tag --no-sign -a -F "$BATS_TEST_TMPDIR/tagmsg" v1
+	run "$AG" check-push origin < <(push_line v1 refs/tags/v1)
+	[ "$status" -eq 1 ]
+}
+
+@test "check-push takes a ref line as a deletion only by its zero object name" {
+	repo
+	commit a "for globex"
+	run "$AG" check-push origin <<<"(delete) $(git rev-parse HEAD) refs/heads/x $zero"
+	[ "$status" -eq 1 ]
+}
+
+@test "check-push reads the objects a push sends, not their replacements" {
+	repo
+	commit a "for globex"
+	bad=$(git rev-parse HEAD)
+	git reset -q --hard HEAD~1
+	commit a fine
+	git replace "$bad" HEAD
+	run "$AG" check-push origin < <(push_line "$bad" refs/heads/main)
+	[ "$status" -eq 1 ]
+	has "a:1: globex"
+}
+
+@test "check-push scans what a merge brings in" {
+	repo
+	git checkout -q -b side
+	commit b "for globex"
+	git checkout -q main
+	git merge -q --no-ff --no-edit side
+	run "$AG" check-push origin < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 1 ]
+	has "b:1: globex"
+}
+
+@test "check-push reads a ref line whose source has a space" {
+	repo
+	commit a "for globex"
+	run "$AG" check-push origin <<<"HEAD@{0 seconds ago} $(git rev-parse HEAD) refs/heads/main $zero"
+	[ "$status" -eq 1 ]
+	has "a:1: globex"
+}
+
 @test "check-msg reads a file named -" {
 	printf 'for globex\n' >"$BATS_TEST_TMPDIR/-"
 	cd "$BATS_TEST_TMPDIR"
 	run "$AG" check-msg - </dev/null
 	[ "$status" -eq 1 ]
 	has "message line 1: globex"
+}
+
+# --- wired as git's config hooks, as in the global git config ----------------
+
+config_hooks() { git hook list -h 2>&1 | grep -q -- --show-scope || skip "this git has no config hooks"; }
+
+hooks() {
+	config_hooks
+	git config --global hook.angerona-msg.event commit-msg
+	git config --global hook.angerona-msg.command "$AG check-msg"
+	git config --global hook.angerona-staged.event pre-commit
+	git config --global hook.angerona-staged.command "$AG check-staged"
+	git config --global hook.angerona-push.event pre-push
+	git config --global hook.angerona-push.command "$AG check-push"
+}
+
+@test "git's config hooks refuse a commit or push that names a term" {
+	repo
+	hooks
+	echo "for globex" >a
+	git add a
+	run git commit -qm "neutral"
+	[ "$status" -ne 0 ]
+	echo fine >a
+	git add a
+	run git commit -qm "for globex"
+	[ "$status" -ne 0 ]
+	git commit -qm "neutral"
+	git checkout -q -b globex
+	run git push -q origin globex
+	[ "$status" -ne 0 ]
+	run git push -q origin HEAD:main
+	[ "$status" -eq 0 ]
+}
+
+@test "git's config hooks can be switched off for a directory" {
+	repo
+	hooks
+	printf '[hook "angerona-staged"]\n\tenabled = false\n' >"$BATS_TEST_TMPDIR/work.gitconfig"
+	git config --global "includeIf.gitdir:$BATS_TEST_TMPDIR/clone/.path" "$BATS_TEST_TMPDIR/work.gitconfig"
+	echo "for globex" >a
+	git add a
+	git commit -qm "neutral"
 }
 
 @test "a list saved with CRLF line ends still guards" {
@@ -440,6 +697,72 @@ commit() { # FILE CONTENT [MESSAGE]
 	run "$AG" check <<<"Globex Corp. said hi"
 	[ "$status" -eq 1 ]
 	has "line 1: Globex Corp"
+}
+
+@test "check-push scans a renamed file's new name" {
+	repo
+	git mv README globex.txt
+	git commit -qm "rename"
+	run "$AG" check-push origin < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 1 ]
+	has "file globex.txt: globex"
+}
+
+@test "check-push scans the name of a second file with the same content" {
+	repo
+	echo same >a.txt
+	echo same >acme-widgets.txt
+	git add .
+	git commit -qm "two"
+	run "$AG" check-push origin < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 1 ]
+	has "file acme-widgets.txt: acme-widgets"
+}
+
+@test "check-push scans a submodule entry's name" {
+	repo
+	git update-index --add --cacheinfo "160000,$(git rev-parse HEAD),globex"
+	git commit -qm "gitlink"
+	run "$AG" check-push origin < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 1 ]
+	has "file globex: globex"
+}
+
+@test "check-push refuses a push from a repo with grafts" {
+	repo
+	commit a fine
+	echo "$(git rev-parse HEAD)" >.git/info/grafts
+	run "$AG" check-push origin < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 1 ]
+	has "grafts"
+	rm .git/info/grafts
+	: >"$BATS_TEST_TMPDIR/grafts"
+	GIT_GRAFT_FILE=$BATS_TEST_TMPDIR/grafts run "$AG" check-push origin < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 1 ]
+}
+
+@test "check-push from a shallow clone scans what the push sends" {
+	repo
+	commit a "for globex"
+	commit b fine
+	commit c fine
+	git clone -q --depth 1 "file://$BATS_TEST_TMPDIR/clone" "$BATS_TEST_TMPDIR/shallow"
+	cd "$BATS_TEST_TMPDIR/shallow"
+	commit d "a globex note"
+	run "$AG" check-push origin "$BATS_TEST_TMPDIR/nothing.git" < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 1 ]
+	has "d:1: globex"
+}
+
+@test "check-push refuses when a pushed blob is missing" {
+	repo
+	commit a fine
+	id=$(git rev-parse HEAD:a)
+	rm -f ".git/objects/$(echo "$id" | cut -c1-2)/$(echo "$id" | cut -c3-)"
+	run "$AG" check-push origin "$BATS_TEST_TMPDIR/nothing.git" < <(push_line HEAD refs/heads/main)
+	[ "$status" -eq 1 ]
+	has "git failed reading the push"
+	has "$id"
 }
 
 @test "check-msg skips the comments and diff git strips from a message" {
