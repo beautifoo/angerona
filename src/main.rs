@@ -1,9 +1,10 @@
 mod list;
+mod msg;
 mod scan;
 
 use scan::{Item, Label, fail, finish};
 use std::{
-    env,
+    env, fs,
     io::{self, Read, Write},
     panic,
     process::exit,
@@ -43,8 +44,20 @@ fn main() {
                 1,
             )
         }
+        ("check-msg", Some(file)) => {
+            let text = fs::read(file)
+                .unwrap_or_else(|_| fail(&format!("can't read {}", file.to_string_lossy()), 1));
+            let editor_used = env::var_os("GIT_EDITOR").is_none_or(|v| v != ":");
+            finish(
+                &[Item {
+                    label: Label::Lines("message "),
+                    bytes: msg::message(&text, editor_used, &msg::comment_string()),
+                }],
+                1,
+            )
+        }
         _ => {
-            eprintln!("usage: angerona check");
+            eprintln!("usage: angerona check | check-msg FILE");
             exit(2)
         }
     }

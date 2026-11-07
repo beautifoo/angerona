@@ -28,6 +28,17 @@ teardown() {
 has() { [[ $output == *"$1"* ]] || { echo "output lacks: $1"; return 1; }; }
 lacks() { [[ $output != *"$1"* ]] || { echo "output has: $1"; return 1; }; }
 
+# A bare "origin" holding one clean commit, and a clone of it as the cwd.
+repo() {
+	git init -q --bare "$BATS_TEST_TMPDIR/origin.git"
+	git clone -q "$BATS_TEST_TMPDIR/origin.git" "$BATS_TEST_TMPDIR/clone" 2>/dev/null
+	cd "$BATS_TEST_TMPDIR/clone"
+	echo clean >README
+	git add README
+	git commit -qm "first"
+	git push -q origin main
+}
+
 # --- the term list -----------------------------------------------------------
 
 @test "check passes text that names no term" {
@@ -153,6 +164,44 @@ lacks() { [[ $output != *"$1"* ]] || { echo "output has: $1"; return 1; }; }
 	has "line 2: zorblax"
 }
 
+# --- check-msg ---------------------------------------------------------------
+
+@test "check-msg refuses a message naming a term" {
+	printf 'fix: tidy\n\nfor the globex team\n' >"$BATS_TEST_TMPDIR/msg"
+	run "$AG" check-msg "$BATS_TEST_TMPDIR/msg"
+	[ "$status" -eq 1 ]
+	has "message line 3: globex"
+}
+
+@test "check-msg honours core.commentChar and core.commentString" {
+	repo
+	printf 'fix: tidy\n; for globex\n# notes\n' >"$BATS_TEST_TMPDIR/msg"
+	git config core.commentChar ";"
+	run "$AG" check-msg "$BATS_TEST_TMPDIR/msg"
+	[ "$status" -eq 0 ]
+	git config core.commentString "//"
+	printf 'fix: tidy\n// for globex\n; for globex\n' >"$BATS_TEST_TMPDIR/msg"
+	run "$AG" check-msg "$BATS_TEST_TMPDIR/msg"
+	[ "$status" -eq 1 ]
+	has "message line 3: globex"
+	lacks "message line 2"
+}
+
+@test "check-msg reads every line when git ran no editor, as git keeps them" {
+	printf 'fix: tidy\n\n# notes for globex\n' >"$BATS_TEST_TMPDIR/msg"
+	GIT_EDITOR=: run "$AG" check-msg "$BATS_TEST_TMPDIR/msg"
+	[ "$status" -eq 1 ]
+	has "message line 3: globex"
+}
+
+@test "check-msg reads a file named -" {
+	printf 'for globex\n' >"$BATS_TEST_TMPDIR/-"
+	cd "$BATS_TEST_TMPDIR"
+	run "$AG" check-msg - </dev/null
+	[ "$status" -eq 1 ]
+	has "message line 1: globex"
+}
+
 @test "a list saved with CRLF line ends still guards" {
 	printf 'zorblax\r\n# comment\r\n\r\nglobex\r\n' >"$terms"
 	run "$AG" check <<<"the zorblax plan"
@@ -189,4 +238,10 @@ lacks() { [[ $output != *"$1"* ]] || { echo "output has: $1"; return 1; }; }
 	run "$AG" check <<<"Globex Corp. said hi"
 	[ "$status" -eq 1 ]
 	has "line 1: Globex Corp"
+}
+
+@test "check-msg skips the comments and diff git strips from a message" {
+	printf 'remove the leaked file\n# Changes to be committed:\n#\tdeleted: globex.txt\n# ------------------------ >8 ------------------------\ndiff --git a/globex.txt b/globex.txt\n-for globex\n' >"$BATS_TEST_TMPDIR/msg"
+	run "$AG" check-msg "$BATS_TEST_TMPDIR/msg"
+	[ "$status" -eq 0 ]
 }

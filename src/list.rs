@@ -10,7 +10,7 @@ pub enum ListError {
 
 // ${XDG_CONFIG_HOME:-$HOME/.config}/angerona/terms.txt. Only an absolute
 // directory counts, since a relative one would read the list from the working
-// directory, which can be the repo whose content is checked. A HOME that is
+// directory, which under a git hook is the repo being scanned. A HOME that is
 // not absolute counts as /, as it does in the shell.
 pub fn path() -> PathBuf {
     let absolute = |var| {
