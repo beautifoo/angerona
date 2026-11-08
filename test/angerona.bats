@@ -816,6 +816,116 @@ hooks() {
 	git commit -qm "neutral"
 }
 
+# --- doctor ------------------------------------------------------------------
+
+@test "doctor passes when the hooks are wired and the list is in place" {
+	repo
+	hooks
+	chmod 600 "$terms"
+	run "$AG" doctor
+	[ "$status" -eq 0 ]
+}
+
+@test "doctor names each problem with the command that fixes it" {
+	repo
+	config_hooks
+	chmod 644 "$terms"
+	run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "no angerona-msg hook for commit-msg"
+	has "git config set --global hook.angerona-push.command '$(cd "$(dirname "$AG")" && pwd)/$(basename "$AG") check-push'"
+	has "chmod 600 $terms"
+	XDG_CONFIG_HOME=$BATS_TEST_TMPDIR/nowhere run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "can't read $BATS_TEST_TMPDIR/nowhere/angerona/terms.txt"
+}
+
+# A git in $BATS_TEST_TMPDIR/oldgit that answers --version with ARGS and
+# hands anything else to the real git.
+oldgit() {
+	mkdir -p "$BATS_TEST_TMPDIR/oldgit"
+	printf '#!/bin/sh\n[ "$1" = --version ] && { %s; }\nexec %s "$@"\n' "$1" "$(command -v git)" >"$BATS_TEST_TMPDIR/oldgit/git"
+	chmod +x "$BATS_TEST_TMPDIR/oldgit/git"
+}
+
+@test "doctor refuses a git too old for config hooks, naming the fix" {
+	repo
+	oldgit "echo 'git version 2.53.1'; exit 0"
+	chmod 600 "$terms"
+	PATH=$BATS_TEST_TMPDIR/oldgit:$PATH run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "$BATS_TEST_TMPDIR/oldgit/git (git version 2.53.1) skips config hooks"
+	has "; fix: "
+	lacks "no angerona-msg hook"
+}
+
+@test "doctor refuses a git that can't say its version" {
+	repo
+	oldgit "echo 'xcrun: error: invalid active developer path' >&2; exit 1"
+	chmod 600 "$terms"
+	PATH=$BATS_TEST_TMPDIR/oldgit:$PATH run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "(xcrun: error: invalid active developer path) skips config hooks"
+}
+
+@test "doctor's fix for an old git is a newer one later on PATH" {
+	repo
+	config_hooks
+	oldgit "echo 'git version 2.53.1'; exit 0"
+	chmod 600 "$terms"
+	PATH=$BATS_TEST_TMPDIR/oldgit:$PATH run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "fix: put $(dirname "$(command -v git)") before $BATS_TEST_TMPDIR/oldgit on PATH"
+}
+
+@test "doctor reads a git's version past a warning before it" {
+	repo
+	hooks
+	oldgit "echo 'git: error: could not create cache file' >&2; echo 'git version 2.56.0'; exit 0"
+	chmod 600 "$terms"
+	PATH=$BATS_TEST_TMPDIR/oldgit:$PATH run "$AG" doctor
+	[ "$status" -eq 0 ]
+	lacks "$BATS_TEST_TMPDIR/oldgit/git ("
+}
+
+@test "doctor notes an old git later on PATH, and still passes" {
+	repo
+	hooks
+	oldgit "echo 'git version 2.39.5 (Apple Git-154)'; exit 0"
+	chmod 600 "$terms"
+	PATH=$PATH:$BATS_TEST_TMPDIR/oldgit run "$AG" doctor
+	[ "$status" -eq 0 ]
+	has "$BATS_TEST_TMPDIR/oldgit/git (git version 2.39.5 (Apple Git-154)) skips config hooks"
+	has "fix: point any app that uses it at $(command -v git)"
+	has "the guard is in place"
+}
+
+@test "doctor says which config switches a hook off" {
+	repo
+	hooks
+	printf '[hook "angerona-staged"]\n\tenabled = false\n' >"$BATS_TEST_TMPDIR/work.gitconfig"
+	git config --global "includeIf.gitdir:$BATS_TEST_TMPDIR/clone/.path" "$BATS_TEST_TMPDIR/work.gitconfig"
+	chmod 600 "$terms"
+	run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "angerona-staged is switched off here, by $BATS_TEST_TMPDIR/work.gitconfig"
+	lacks "hook.angerona-staged.command"
+	lacks "angerona-msg"
+}
+
+@test "doctor flags a hook switched off by the repo's own config" {
+	repo
+	hooks
+	git config hook.angerona-push.enabled false
+	chmod 600 "$terms"
+	run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "angerona-push is switched off by this repo's own config, .git/config, which an agent can write"
+	lacks "check-json"
+	has "fix: git config unset --local hook.angerona-push.enabled"
+	lacks "angerona-msg"
+}
+
 @test "a list saved with CRLF line ends still guards" {
 	printf 'zorblax\r\n# comment\r\n\r\nglobex\r\n' >"$terms"
 	run "$AG" check <<<"the zorblax plan"
@@ -989,4 +1099,89 @@ hooks() {
 	printf 'remove the leaked file\n# Changes to be committed:\n#\tdeleted: globex.txt\n# ------------------------ >8 ------------------------\ndiff --git a/globex.txt b/globex.txt\n-for globex\n' >"$BATS_TEST_TMPDIR/msg"
 	run "$AG" check-msg "$BATS_TEST_TMPDIR/msg"
 	[ "$status" -eq 0 ]
+}
+
+@test "doctor refuses hooks whose command is gone" {
+	repo
+	hooks
+	git config --global hook.angerona-push.command "/nonexistent/angerona check-push"
+	chmod 600 "$terms"
+	run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "no angerona-push hook for pre-push"
+}
+
+@test "doctor checks the Claude Code hook when ~/.claude exists" {
+	repo
+	hooks
+	chmod 600 "$terms"
+	mkdir -p "$HOME/.claude"
+	echo '{"hooks":{"PreToolUse":[{"matcher":"mcp__(.*_)?[Gg]it[Hh]ub__","hooks":[{"type":"command","command":"/x/angerona","args":["check-json"]}]}]}}' >"$HOME/.claude/settings.json"
+	run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "no Claude Code hook runs angerona check-json on every MCP call"
+	echo '{"hooks":{"PreToolUse":[{"matcher":"mcp__.*","hooks":[{"type":"command","command":"/x/angerona","args":["check-json"],"onFailure":"block"}]}]}}' >"$HOME/.claude/settings.json"
+	run "$AG" doctor
+	[ "$status" -eq 0 ]
+}
+
+# ~/.claude/settings.json with a PreToolUse hook on MATCHER that runs
+# check-json and blocks on failure, and EXTRA, a JSON member, beside it.
+claude_hook() { # MATCHER [EXTRA]
+	mkdir -p "$HOME/.claude"
+	printf '{%s"hooks":{"PreToolUse":[{"matcher":"%s","hooks":[{"type":"command","command":"/x/angerona","args":["check-json"],"onFailure":"block"}]}]}}\n' "${2:+$2,}" "$1" >"$HOME/.claude/settings.json"
+}
+
+@test "doctor refuses a Claude Code matcher that is not every MCP call" {
+	repo
+	hooks
+	chmod 600 "$terms"
+	for m in mcp__ mcp mcp__x__ 'mcp__github__.*' 'Edit|Write' 'mcp__a, mcp__b'; do
+		claude_hook "$m"
+		run "$AG" doctor
+		[ "$status" -eq 1 ] || { echo "passed: $m"; return 1; }
+		has "no Claude Code hook runs angerona check-json on every MCP call"
+	done
+}
+
+@test "doctor accepts a Claude Code matcher that takes every tool" {
+	repo
+	hooks
+	chmod 600 "$terms"
+	for m in '*' '' '.*' 'mcp__.*'; do
+		claude_hook "$m"
+		run "$AG" doctor
+		[ "$status" -eq 0 ] || { echo "refused: $m"; return 1; }
+	done
+}
+
+@test "doctor refuses a Claude Code hook that disableAllHooks switches off" {
+	repo
+	hooks
+	chmod 600 "$terms"
+	claude_hook 'mcp__.*' '"disableAllHooks":false'
+	run "$AG" doctor
+	[ "$status" -eq 0 ]
+	claude_hook 'mcp__.*' '"disableAllHooks":true'
+	run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "no Claude Code hook runs angerona check-json on every MCP call"
+}
+
+@test "doctor accepts the Claude Code hook in README.md, but only with onFailure block" {
+	repo
+	hooks
+	chmod 600 "$terms"
+	mkdir -p "$HOME/.claude"
+	echo '{"hooks":{"PreToolUse":[{"matcher":"mcp__.*","hooks":[{"type":"command","command":"/Users/you/.local/bin/angerona","args":["check-json"],"onFailure":"block"}]}]}}' >"$HOME/.claude/settings.json"
+	run "$AG" doctor
+	[ "$status" -eq 0 ]
+	# The shell form works too.
+	echo '{"hooks":{"PreToolUse":[{"matcher":"mcp__.*","hooks":[{"type":"command","command":"~/.local/bin/angerona check-json || exit 2","onFailure":"block"}]}]}}' >"$HOME/.claude/settings.json"
+	run "$AG" doctor
+	[ "$status" -eq 0 ]
+	echo '{"hooks":{"PreToolUse":[{"matcher":"mcp__.*","hooks":[{"type":"command","command":"/Users/you/.local/bin/angerona","args":["check-json"]}]}]}}' >"$HOME/.claude/settings.json"
+	run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "no Claude Code hook runs angerona check-json on every MCP call"
 }

@@ -38,9 +38,9 @@ The list lives outside every repo, so the names it guards are never in one.
 git 2.54 or later. Tested on macOS and Linux.
 
 An older git skips config-based hooks without a word, so a commit or push
-made with it skips the guard. Update it, with `brew install git` for
-example. A git an app bundles is not on your PATH: point the app at a newer
-git instead.
+made with it skips the guard. `angerona doctor` names each git on your PATH
+that would; update it, with `brew install git` for example. A git an app
+bundles is not on your PATH: point the app at a newer git instead.
 
 ## Install
 
@@ -105,9 +105,12 @@ git config set --global hook.angerona-staged.event pre-commit
 git config set --global hook.angerona-staged.command '~/.local/bin/angerona check-staged'
 git config set --global hook.angerona-push.event pre-push
 git config set --global hook.angerona-push.command '~/.local/bin/angerona check-push'
+~/.local/bin/angerona doctor
 ```
 
-A repo's own hooks still run, after these.
+`doctor` checks the hooks, the list and each git on your PATH from the repo
+you run it in, and prints the command that fixes each problem. A repo's own
+hooks still run, after these.
 
 Where the names belong, in work repos for example, switch the hooks off with
 a config that your global config includes:
@@ -128,7 +131,9 @@ and, in `config-work`:
 	enabled = false
 ```
 
-A repo's own config (`.git/config`) can switch the hooks off too.
+In such a repo, `doctor` says the guard is switched off, and by which file.
+A repo's own config (`.git/config`) can switch the hooks off too, but
+`doctor` flags that, since an agent can write it.
 
 ## Claude Code
 
@@ -178,7 +183,7 @@ includes this file and `.claude/settings.local.json`: either could set
 `"disableAllHooks": true`, or drop this block. Claude Code's sandbox already
 keeps the shell from writing them, but in auto mode a classifier can approve
 an edit to them, which the deny rules below rule out. A repo's own
-`.git/config` stays writable.
+`.git/config` stays writable: `doctor` flags a switch-off there, as above.
 
 ```json
 {

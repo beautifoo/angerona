@@ -1,3 +1,4 @@
+mod doctor;
 mod json;
 mod list;
 mod msg;
@@ -118,9 +119,10 @@ fn main() {
             let cwd = call["cwd"].as_str().unwrap_or(".");
             finish(&json::items(input, Path::new(cwd)), 2)
         }
+        ("doctor", _) => exit(doctor::run()),
         _ => {
             eprintln!(
-                "usage: angerona check | check-msg FILE | check-staged | check-push REMOTE | check-json"
+                "usage: angerona check | check-msg FILE | check-staged | check-push REMOTE | check-json | doctor"
             );
             exit(2)
         }
