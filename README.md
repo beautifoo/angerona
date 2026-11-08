@@ -1,7 +1,8 @@
 # angerona
 
 Keeps the names on a private list, such as an employer, a client or a codename,
-out of everything you publish with git.
+out of everything you publish with git, and out of what an AI agent sends to
+an MCP server.
 
 Angerona was the Roman goddess shown with her mouth sealed, who kept the secret
 name of Rome.
@@ -27,6 +28,8 @@ the text a program wrote into it, such as an image's XMP or a PDF's
 properties, and leaves out its compressed bytes, where a short term would
 turn up by chance. A file that starts with a UTF-16 byte-order mark is read
 as text.
+
+A Claude Code hook runs it over every MCP call too (`check-json`).
 
 The list lives outside every repo, so the names it guards are never in one.
 
@@ -127,6 +130,89 @@ and, in `config-work`:
 
 A repo's own config (`.git/config`) can switch the hooks off too.
 
+## Claude Code
+
+Scan every MCP call, in `~/.claude/settings.json`, running the binary by its
+full path, with no shell. `check-json` exits 2 on a refusal and on every
+error, which blocks the call:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/you/.local/bin/angerona",
+            "args": ["check-json"],
+            "onFailure": "block"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+A session's calls follow its project's git: where git has `angerona-push`
+switched off, by the `config-work` include above for example, the session is
+a work session. In one, a GitHub call passes only when it names an owner or
+organization and every one it names is an owner of the remote the current
+branch pushes to (git's push remote: `branch.<name>.pushRemote`,
+`remote.pushDefault`, the branch's remote, `origin`), and is scanned
+otherwise, a call that names none included. Every other MCP tool passes, so
+browser tools (Playwright and the like) can post anywhere unchecked there.
+The shell is never checked, in a work session or not. A repo's own
+`.git/config` can start a work session too. The project is the directory the
+session started in, so a session started outside a git repo is always
+checked.
+
+A hook only sees what passes through it. An agent with a shell can reach
+GitHub without the MCP server (`gh`, `curl`, `git push --no-verify`), or
+edit the guard. Where that matters, take those away in the project's
+`.claude/settings.json`: no GitHub network for the shell, and no writes to
+the guard, its list, or the global git config and the Claude config. That
+includes this file and `.claude/settings.local.json`: either could set
+`"disableAllHooks": true`, or drop this block. Claude Code's sandbox already
+keeps the shell from writing them, but in auto mode a classifier can approve
+an edit to them, which the deny rules below rule out. A repo's own
+`.git/config` stays writable.
+
+```json
+{
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "network": {
+      "deniedDomains": ["github.com", "*.github.com", "*.githubusercontent.com"]
+    },
+    "filesystem": {
+      "denyWrite": [
+        "~/.local/bin/angerona",
+        "~/.config/angerona",
+        "~/.config/git",
+        "~/.gitconfig",
+        "~/.claude/settings.json"
+      ]
+    }
+  },
+  "permissions": {
+    "deny": [
+      "Edit(~/.local/bin/angerona)",
+      "Edit(~/.config/angerona/**)",
+      "Edit(~/.config/git/**)",
+      "Edit(~/.gitconfig)",
+      "Edit(~/.claude/settings.json)",
+      "Edit(/.claude/settings.json)",
+      "Edit(/.claude/settings.local.json)"
+    ]
+  }
+}
+```
+
 ## What it won't catch
 
 It matches text, and only what passes through its hooks:
@@ -144,7 +230,8 @@ It matches text, and only what passes through its hooks:
 ## Exit codes
 
 0 passes. 1 refuses, and says where each hit is: `path:line: match`,
-`commit <sha>: match`, `ref <name>: match`. 2 is a usage error.
+`commit <sha>: match`, `ref <name>: match`. 2 is a usage error. `check-json`
+exits 2 on a refusal too, which blocks the call.
 
 ## Tests
 

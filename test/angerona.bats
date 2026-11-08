@@ -648,6 +648,131 @@ raw_commit() {
 	has "message line 1: globex"
 }
 
+# --- check-json, for a Claude Code PreToolUse hook ---------------------------
+
+@test "check-json scans every string in a tool call's input" {
+	run "$AG" check-json <<<'{"tool_name":"mcp__github__create_pull_request","tool_input":{"title":"fine","body":"line one\nfor globex","labels":["ok"]}}'
+	[ "$status" -eq 2 ]
+	has "body:2: globex"
+	run "$AG" check-json <<<'{"tool_name":"mcp__github__get_me","tool_input":{"files":[{"path":"a","content":"fine"}]}}'
+	[ "$status" -eq 0 ]
+}
+
+@test "check-json refuses input it can't parse" {
+	run "$AG" check-json <<<'{not json'
+	[ "$status" -eq 2 ]
+	has "can't read the tool call"
+}
+
+@test "check-json passes every call in a project where git has the guard switched off" {
+	repo
+	hooks
+	printf '[hook "angerona-push"]\n\tenabled = false\n' >"$BATS_TEST_TMPDIR/work.gitconfig"
+	git config --global "includeIf.gitdir:$BATS_TEST_TMPDIR/clone/.path" "$BATS_TEST_TMPDIR/work.gitconfig"
+	input='{"tool_input":{"body":"for globex"}}'
+	CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/clone run "$AG" check-json <<<"$input"
+	[ "$status" -eq 0 ]
+	XDG_CONFIG_HOME=$BATS_TEST_TMPDIR/nowhere CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/clone run "$AG" check-json <<<"$input"
+	[ "$status" -eq 0 ]
+	git init -q "$BATS_TEST_TMPDIR/other"
+	CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/other run "$AG" check-json <<<"$input"
+	[ "$status" -eq 2 ]
+	CLAUDE_PROJECT_DIR= run "$AG" check-json <<<"$input"
+	[ "$status" -eq 2 ]
+	# The repo's own config switches it back on.
+	git config hook.angerona-push.enabled true
+	CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/clone run "$AG" check-json <<<"$input"
+	[ "$status" -eq 2 ]
+	has "body:1: globex"
+}
+
+@test "check-json follows a switch-off in the repo's own config, as git does" {
+	repo
+	hooks
+	git config hook.angerona-push.enabled false
+	CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/clone run "$AG" check-json <<<'{"tool_input":{"body":"for globex"}}'
+	[ "$status" -eq 0 ]
+}
+
+@test "check-json reads the push hook's switch as git's hooks do, not as git config does" {
+	repo
+	hooks
+	input='{"tool_input":{"body":"for globex"}}'
+	printf '[hook "angerona-push"]\n\tenabled = false\n' >"$BATS_TEST_TMPDIR/off.gitconfig"
+	GIT_CONFIG=$BATS_TEST_TMPDIR/off.gitconfig CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/clone run "$AG" check-json <<<"$input"
+	[ "$status" -eq 2 ]
+	git config --global hook.angerona-push.enabled false
+	git config hook.angerona-push.enabled maybe
+	CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/clone run "$AG" check-json <<<"$input"
+	[ "$status" -eq 0 ]
+}
+
+@test "check-json passes where git switches off every pre-push hook" {
+	repo
+	hooks
+	git config hook.pre-push.enabled false
+	CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/clone run "$AG" check-json <<<'{"tool_input":{"body":"for globex"}}'
+	[ "$status" -eq 0 ]
+}
+
+@test "check-json, in a work session, passes GitHub calls only to the repo's own owners" {
+	repo
+	hooks
+	git remote add gh git@github.com:workorg/app.git
+	git config remote.pushDefault gh
+	git config hook.angerona-push.enabled false
+	export CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/clone
+	run "$AG" check-json <<<'{"tool_name":"mcp__github__create_issue","tool_input":{"owner":"workorg","body":"for globex"}}'
+	[ "$status" -eq 0 ]
+	run "$AG" check-json <<<'{"tool_name":"mcp__github__create_issue","tool_input":{"owner":"me","body":"for globex"}}'
+	[ "$status" -eq 2 ]
+	run "$AG" check-json <<<'{"tool_name":"mcp__github__search_code","tool_input":{"query":"globex"}}'
+	[ "$status" -eq 2 ]
+	run "$AG" check-json <<<'{"tool_name":"mcp__plugin_slack_slack__slack_send_message","tool_input":{"message":"for globex"}}'
+	[ "$status" -eq 0 ]
+}
+
+@test "check-json, in a work session, counts only the remote the branch pushes to" {
+	repo
+	hooks
+	git config hook.angerona-push.enabled false
+	git remote set-url origin git@github.com:workorg/app.git
+	git remote add upstream git@github.com:ossorg/lib.git
+	export CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/clone
+	run "$AG" check-json <<<'{"tool_name":"mcp__github__create_issue","tool_input":{"owner":"ossorg","body":"for globex"}}'
+	[ "$status" -eq 2 ]
+	has "body:1: globex"
+	run "$AG" check-json <<<'{"tool_name":"mcp__github__create_issue","tool_input":{"owner":"workorg","body":"for globex"}}'
+	[ "$status" -eq 0 ]
+	git config branch.main.pushRemote upstream
+	run "$AG" check-json <<<'{"tool_name":"mcp__github__create_issue","tool_input":{"owner":"ossorg","body":"for globex"}}'
+	[ "$status" -eq 0 ]
+	run "$AG" check-json <<<'{"tool_name":"mcp__github__create_issue","tool_input":{"owner":"workorg","body":"for globex"}}'
+	[ "$status" -eq 2 ]
+}
+
+@test "check-json scans every call when ceiling directories are set" {
+	repo
+	hooks
+	git config hook.angerona-push.enabled false
+	GIT_CEILING_DIRECTORIES=$BATS_TEST_TMPDIR CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/clone run "$AG" check-json <<<'{"tool_input":{"body":"for globex"}}'
+	[ "$status" -eq 2 ]
+}
+
+@test "check-json reads files named in a call, not directories or missing paths" {
+	echo "for globex" >"$BATS_TEST_TMPDIR/page.html"
+	run "$AG" check-json <<<"{\"tool_input\":{\"file_path\":\"$BATS_TEST_TMPDIR/page.html\"}}"
+	[ "$status" -eq 2 ]
+	has "$BATS_TEST_TMPDIR/page.html:1: globex"
+	run "$AG" check-json <<<"{\"tool_input\":{\"a\":\"/\",\"b\":\"$BATS_TEST_TMPDIR\",\"c\":\"$BATS_TEST_TMPDIR/not-yet.png\"}}"
+	[ "$status" -eq 0 ]
+}
+
+@test "check-json refuses a call with no tool_input" {
+	run "$AG" check-json <<<'{"tool_name":"x","toolArgs":{"body":"fine"}}'
+	[ "$status" -eq 2 ]
+}
+
 # --- wired as git's config hooks, as in the global git config ----------------
 
 config_hooks() { git hook list -h 2>&1 | grep -q -- --show-scope || skip "this git has no config hooks"; }
@@ -849,6 +974,15 @@ hooks() {
 	run "$AG" check-push origin "https://t0ken@127.0.0.1:9/r.git" < <(push_line HEAD refs/heads/main)
 	has "can't ask https://"
 	lacks "t0ken"
+}
+
+@test "check-json scans keys and input that is not an object" {
+	run "$AG" check-json <<<'{"tool_input":{"globex":1}}'
+	[ "$status" -eq 2 ]
+	has "key globex: globex"
+	run "$AG" check-json <<<'{"tool_input":"for globex"}'
+	[ "$status" -eq 2 ]
+	has "globex"
 }
 
 @test "check-msg skips the comments and diff git strips from a message" {
