@@ -3,6 +3,9 @@ name = "angerona"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
+description = "Keeps the terms on a private list out of what you publish with git and MCP"
+repository = "https://github.com/beautifoo/angerona"
+license = "MIT"
 
 [dependencies]
 gix = { version = "0.90", default-features = false, features = ["sha1", "index", "status", "credentials", "blocking-network-client", "blocking-http-transport-curl"] }
