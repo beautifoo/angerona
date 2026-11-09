@@ -44,13 +44,27 @@ bundles is not on your PATH: point the app at a newer git instead.
 
 ## Install
 
-Build it with cargo, then install a copy:
+From the release archive, once you have checked it was built from the commit
+you reviewed:
 
 ```sh
-cargo build --release --locked
+gh release download --repo beautifoo/angerona --pattern angerona-aarch64-apple-darwin.tar.xz
+gh attestation verify angerona-aarch64-apple-darwin.tar.xz --repo beautifoo/angerona --source-digest <the commit you reviewed>
+tar -xJf angerona-aarch64-apple-darwin.tar.xz
 mkdir -p ~/.local/bin
-install -m 755 target/release/angerona ~/.local/bin/angerona
+install -m 755 angerona-aarch64-apple-darwin/angerona ~/.local/bin/angerona
 ```
+
+Or with Homebrew:
+
+```sh
+brew install beautifoo/tap/angerona
+```
+
+The commands below use `~/.local/bin/angerona`; after a Homebrew install, use
+the full path `$(brew --prefix)/bin/angerona` expands to instead, such as
+`/opt/homebrew/bin/angerona`. Only an `Edit(...)` rule spells an absolute path
+differently, with `//`: `Edit(//opt/homebrew/bin/angerona)`.
 
 Install a copy rather than pointing git at a checkout: then editing the
 checkout, yours or an agent's, doesn't change the guard until you install
