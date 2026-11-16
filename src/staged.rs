@@ -1,15 +1,32 @@
 use crate::scan::{Item, Label, blob_item};
 use gix::index::entry::Mode;
-use std::{env, ops::ControlFlow, path::Path};
+use std::{
+    env, fs,
+    ops::ControlFlow,
+    os::unix::fs::MetadataExt,
+    path::{Path, PathBuf},
+};
 
 // The repository git would use in dir, as a hook sees it: GIT_DIR and
 // GIT_INDEX_FILE, which git sets for the temporary index of commit -a or
 // commit <paths>, are honoured. Replace objects are off. Like git, ceiling
-// directories that don't cover dir are ignored, not an error.
+// directories that don't cover dir are ignored, not an error. Like git, dir is
+// taken under $PWD while that names the cwd: gix matches an includeIf
+// "gitdir:" only against the path as given or its real path, so one through a
+// symlink, such as macOS's /var, would miss the real path the cwd reports.
 pub fn open(dir: &Path) -> Result<gix::Repository, String> {
+    let cwd_ino = |p: &Path| fs::metadata(p).map(|m| (m.dev(), m.ino())).ok();
+    let cwd = env::var_os("PWD")
+        .map(PathBuf::from)
+        .filter(|p| {
+            p.is_absolute() && cwd_ino(p).is_some() && cwd_ino(p) == cwd_ino(Path::new("."))
+        })
+        .map_or_else(env::current_dir, Ok)
+        .and_then(|cwd| std::path::absolute(cwd.join(dir)))
+        .map_err(|e| e.to_string())?;
     let mut repo: gix::Repository =
         gix::ThreadSafeRepository::discover_with_environment_overrides_opts(
-            dir,
+            cwd,
             gix::discover::upwards::Options {
                 match_ceiling_dir_or_error: false,
                 ..Default::default()
