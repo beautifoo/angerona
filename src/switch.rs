@@ -249,9 +249,15 @@ fn rule(config: &File, workdir: Option<&Path>, hook: &str, event: &str) -> Switc
             .iter()
             .rev()
             .find_map(|v| git_bool(&v.to_str_lossy()));
-        let slot = if name == hook {
+        // In the old [hook.Name] syntax git lowercases the name.
+        let name = if text.get(5) == Some(&b'.') {
+            name.to_ascii_lowercase()
+        } else {
+            name.to_vec()
+        };
+        let slot = if name == hook.as_bytes() {
             &mut by_hook
-        } else if name == event {
+        } else if name == event.as_bytes() {
             &mut by_event
         } else {
             continue;

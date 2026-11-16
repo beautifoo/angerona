@@ -1004,6 +1004,19 @@ oldgit() {
 	has "angerona-push is switched off here, by command line:; if this repo must not name the terms, fix: unset GIT_CONFIG_COUNT"
 }
 
+@test "a switch-off in the old [hook.Name] syntax counts in any case, as git lowercases it" {
+	repo
+	hooks
+	chmod 600 "$terms"
+	printf '[hook.Angerona-Push]\n\tenabled = false\n' >>.git/config
+	run git hook list pre-push
+	has "disabled"
+	run "$AG" doctor
+	has "angerona-push is switched off by this repo's own config, .git/config"
+	CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/clone run "$AG" check-json <<<'{"tool_input":{"body":"for globex"}}'
+	[ "$status" -eq 0 ]
+}
+
 @test "a \$PWD that isn't the cwd doesn't pick the repo" {
 	repo
 	git init -q inner
