@@ -4,7 +4,7 @@ use std::{
     env, fs,
     ops::ControlFlow,
     os::unix::fs::MetadataExt,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 // Where git starts looking for the repo from dir, by the path an includeIf
@@ -25,6 +25,19 @@ pub fn start(dir: &Path) -> std::io::Result<PathBuf> {
     } else {
         Ok(fs::canonicalize(&named).unwrap_or(named))
     }
+}
+
+// The path with each ".." folded into the part before it, without reading the
+// filesystem, as git names a path it was handed that way.
+pub fn fold(path: &Path) -> PathBuf {
+    path.components().fold(PathBuf::new(), |mut out, part| {
+        if part == Component::ParentDir {
+            out.pop();
+        } else {
+            out.push(part);
+        }
+        out
+    })
 }
 
 // The repository git would use from start, as a hook sees it, reading the

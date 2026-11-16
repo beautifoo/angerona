@@ -11,7 +11,7 @@ use gix::{
     open::permissions::Config,
 };
 use std::{
-    env, fmt,
+    env, fmt, fs,
     path::{Path, PathBuf},
 };
 
@@ -65,9 +65,13 @@ pub fn read(dir: &Path, hook: &str, event: &str, may_run_git: bool) -> Switch {
         system: may_run_git,
         ..Config::all()
     };
-    let repo = match staged::start(dir).map(|start| staged::open_at(&start, sources)) {
-        Ok(Ok(repo)) => Some(repo),
-        Ok(Err(e))
+    let start = match staged::start(dir) {
+        Ok(start) => start,
+        Err(e) => return Switch::Unclear(format!("as its directory can't be read ({e})")),
+    };
+    let repo = match staged::open_at(&start, sources) {
+        Ok(repo) => Some(repo),
+        Err(e)
             if e.downcast_any_ref::<upwards::Error>().is_some_and(|e| {
                 matches!(
                     e,
@@ -80,24 +84,25 @@ pub fn read(dir: &Path, hook: &str, event: &str, may_run_git: bool) -> Switch {
             None
         }
         // A repo git reads but gix can't, such as one with SHA-256 objects.
-        Ok(Err(e)) => {
+        Err(e) => {
             return Switch::Unclear(format!(
                 "as gix can't read this repo ({})",
                 e.probable_cause()
             ));
         }
-        Err(e) => return Switch::Unclear(format!("as its directory can't be read ({e})")),
     };
-    let (mut config, workdir) = match repo {
+    // git names the repo's own config from where it started, or, below a
+    // worktree's top, from the top.
+    let (mut config, from) = match repo {
         Some(repo) if repo.git_dir_trust() != gix::sec::Trust::Full => {
             return Switch::Unclear("as git doesn't trust this repo".into());
         }
         Some(repo) => (
             repo.config_snapshot().plumbing().clone(),
-            repo.workdir().map(Path::to_path_buf),
+            [Some(start), repo.workdir().map(Path::to_path_buf)],
         ),
         None => match globals(may_run_git) {
-            Some(config) => (config, None),
+            Some(config) => (config, [None, None]),
             None => return Switch::On,
         },
     };
@@ -109,7 +114,7 @@ pub fn read(dir: &Path, hook: &str, event: &str, may_run_git: bool) -> Switch {
             "as git can't read GIT_CONFIG_PARAMETERS; fix: unset GIT_CONFIG_PARAMETERS".into(),
         );
     }
-    rule(&config, workdir.as_deref(), hook, event)
+    rule(&config, &from, hook, event)
 }
 
 // The entries of GIT_CONFIG_PARAMETERS, where git -c hands its values to the
@@ -223,8 +228,30 @@ fn globals(may_run_git: bool) -> Option<File> {
     Some(config)
 }
 
-fn rule(config: &File, workdir: Option<&Path>, hook: &str, event: &str) -> Switch {
-    // git shows the repo's own config by its path in the worktree.
+// The repo's own config file as git names it: below GIT_DIR as given, while
+// that is set; else from the first of from that holds it; else in full, with
+// any ".." folded, as a linked worktree's shared config.
+fn named(file: &Path, from: &[Option<PathBuf>]) -> String {
+    let file = staged::fold(file);
+    let given = env::var_os("GIT_DIR").map(PathBuf::from);
+    given
+        .and_then(|dir| {
+            // gix and the cwd may spell the same directory by different links.
+            let real = fs::canonicalize(&file).ok()?;
+            let rest = real.strip_prefix(fs::canonicalize(&dir).ok()?).ok()?;
+            Some(dir.join(rest))
+        })
+        .or_else(|| {
+            from.iter()
+                .flatten()
+                .find_map(|base| file.strip_prefix(base).ok().map(Path::to_path_buf))
+        })
+        .unwrap_or(file)
+        .display()
+        .to_string()
+}
+
+fn rule(config: &File, from: &[Option<PathBuf>], hook: &str, event: &str) -> Switch {
     let by = |meta: &Metadata| match (&meta.path, meta.source) {
         (Some(p), Source::Local | Source::Worktree) => By::Repo(
             if meta.source == Source::Local {
@@ -232,11 +259,7 @@ fn rule(config: &File, workdir: Option<&Path>, hook: &str, event: &str) -> Switc
             } else {
                 "worktree"
             },
-            workdir
-                .and_then(|w| p.strip_prefix(w).ok())
-                .unwrap_or(p)
-                .display()
-                .to_string(),
+            named(p, from),
         ),
         (Some(p), _) => By::File(p.display().to_string()),
         (None, Source::Cli) => By::Env("GIT_CONFIG_PARAMETERS"),
@@ -287,9 +310,10 @@ fn rule(config: &File, workdir: Option<&Path>, hook: &str, event: &str) -> Switc
             *slot = Some((on, section.meta()));
         }
     }
+    // With both off, git names the event's, and only unsetting that runs it.
     let (key, meta) = match (by_hook, by_event) {
-        (Some((false, meta)), _) => (hook, meta),
         (_, Some((false, meta))) => (event, meta),
+        (Some((false, meta)), _) => (hook, meta),
         _ => return Switch::On,
     };
     Switch::Off {

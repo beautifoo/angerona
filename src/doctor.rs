@@ -1,5 +1,5 @@
 use crate::{
-    list,
+    list, staged,
     switch::{self, By, Switch},
 };
 use regex::Regex;
@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use std::{
     env, fs,
     os::unix::fs::PermissionsExt,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
     process::Command,
 };
 
@@ -34,15 +34,7 @@ pub fn run() -> i32 {
     let (mut notes, mut problems, mut old) = (String::new(), String::new(), false);
     // Fold a "..", so the fix reads the same however the binary was run.
     let me = env::current_exe().map_or("angerona".into(), |p| {
-        let mut clean = PathBuf::new();
-        for part in p.components() {
-            if part == Component::ParentDir {
-                clean.pop();
-            } else {
-                clean.push(part);
-            }
-        }
-        clean.display().to_string()
+        staged::fold(&p).display().to_string()
     });
     let home = env::var("HOME").ok();
 

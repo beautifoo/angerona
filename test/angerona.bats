@@ -1031,6 +1031,39 @@ oldgit() {
 	[ "$status" -eq 2 ]
 }
 
+@test "doctor names the repo's own config as git does, wherever it runs" {
+	repo
+	hooks
+	chmod 600 "$terms"
+	git config hook.angerona-push.enabled false
+	git worktree add -q "$BATS_TEST_TMPDIR/wt"
+	git clone -q --bare "$BATS_TEST_TMPDIR/origin.git" "$BATS_TEST_TMPDIR/bare.git"
+	git -C "$BATS_TEST_TMPDIR/bare.git" config hook.angerona-push.enabled false
+	same() {
+		local origin
+		origin=$(git config --show-origin --get hook.angerona-push.enabled | cut -f1)
+		run "$AG" doctor
+		has "angerona-push is switched off by this repo's own config, ${origin#file:}, which"
+	}
+	same
+	cd "$BATS_TEST_TMPDIR/wt" && same
+	cd "$BATS_TEST_TMPDIR/bare.git" && same
+	cd "$BATS_TEST_TMPDIR/clone/.git" && same
+	cd "$BATS_TEST_TMPDIR" && GIT_DIR=clone/.git same
+}
+
+@test "with both keys off, doctor names the event's, as git does" {
+	repo
+	hooks
+	chmod 600 "$terms"
+	git config hook.angerona-push.enabled false
+	git config hook.pre-push.enabled false
+	run git hook list pre-push
+	has "event-disabled"
+	run "$AG" doctor
+	has "fix: git config unset --local hook.pre-push.enabled"
+}
+
 @test "a \$PWD that isn't the cwd doesn't pick the repo" {
 	repo
 	git init -q inner
