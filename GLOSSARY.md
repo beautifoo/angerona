@@ -5,7 +5,7 @@ Keeps the names on a private list out of what you publish with git and what an a
 ## Language
 
 **Term**:
-A name on the list that must stay out of what you publish, matched in any case and across any separators.
+A name on the list that must stay out of what you publish, matched as written, in any case, even inside a longer word.
 _Avoid_: word, pattern, secret
 
 **List**:

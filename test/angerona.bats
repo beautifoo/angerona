@@ -74,31 +74,14 @@ push_line() { printf '%s %s %s %s\n' "$2" "$(git rev-parse "$1")" "$2" "$zero"; 
 	[ "$status" -eq 1 ]
 }
 
-@test "a term matches with any separators, or none, between its words" {
-	for text in Acme-Widgets acme_widgets AcmeWidgets "acme .. widgets"; do
+@test "a term matches only as written, reported as listed" {
+	run "$AG" check <<<"from xACME WIDGETSy today"
+	[ "$status" -eq 1 ]
+	has "line 1: Acme Widgets"
+	for text in Acme-Widgets acme_widgets AcmeWidgets "acme  widgets" $'Acme\nWidgets'; do
 		run "$AG" check <<<"from $text today"
-		[ "$status" -eq 1 ] || { echo "passed: $text"; return 1; }
+		[ "$status" -eq 0 ] || { echo "refused: $text"; return 1; }
 	done
-	run "$AG" check <<<"acme gadgets and widgets"
-	[ "$status" -eq 0 ]
-}
-
-@test "a term matches across a line break" {
-	run "$AG" check <<<$'we sell Acme\nWidgets here'
-	[ "$status" -eq 1 ]
-	has "line 1: Acme ⏎ Widgets"
-	repo
-	printf 'we sell Acme\nWidgets here\n' >a
-	git add a
-	run "$AG" check-staged
-	[ "$status" -eq 1 ]
-	has "a:1: Acme ⏎ Widgets"
-}
-
-@test "a term matches across a blank line or several lines" {
-	run "$AG" check <<<$'we sell Acme\n\n--\nWidgets here'
-	[ "$status" -eq 1 ]
-	has "line 1: Acme ⏎  ⏎ -- ⏎ Widgets"
 }
 
 @test "letters are Unicode letters, in any case" {
@@ -112,14 +95,14 @@ push_line() { printf '%s %s %s %s\n' "$2" "$(git rev-parse "$1")" "$2" "$zero"; 
 	[ "$status" -eq 1 ]
 }
 
-@test "regex characters in a term are only separators" {
+@test "a term's punctuation matches only itself" {
 	printf 'qu+ux\n' >"$terms"
-	for text in quux qu+ux "qu ux"; do
+	run "$AG" check <<<"x qu+ux y"
+	[ "$status" -eq 1 ]
+	for text in quux quuux "qu ux"; do
 		run "$AG" check <<<"x $text y"
-		[ "$status" -eq 1 ] || { echo "passed: $text"; return 1; }
+		[ "$status" -eq 0 ] || { echo "refused: $text"; return 1; }
 	done
-	run "$AG" check <<<"quuux"
-	[ "$status" -eq 0 ]
 }
 
 @test "comment lines, indented or not, are skipped" {
@@ -579,9 +562,9 @@ raw_commit() {
 }
 
 @test "a NUL byte doesn't hide what follows it" {
-	run "$AG" check <<<$'x\001Acme\nWidgets'
+	run "$AG" check <<<$'x\001Acme Widgets'
 	[ "$status" -eq 1 ]
-	printf 'x\000Acme\nWidgets\n' >"$BATS_TEST_TMPDIR/nul"
+	printf 'x\000Acme Widgets\n' >"$BATS_TEST_TMPDIR/nul"
 	run "$AG" check <"$BATS_TEST_TMPDIR/nul"
 	[ "$status" -eq 1 ]
 	repo
@@ -983,14 +966,12 @@ oldgit() {
 # --- edge cases --------------------------------------------------------------
 
 @test "a term matches next to an underscore" {
-	for text in GLOBEX_API_KEY=1 my_globex_client acme_widgets_v2; do
+	for text in GLOBEX_API_KEY=1 my_globex_client; do
 		run "$AG" check <<<"$text"
 		[ "$status" -eq 1 ] || { echo "passed: $text"; return 1; }
 	done
-	has "line 1: acme_widgets"
 	run "$AG" check <<<$'one\nglobex_x'
 	has "line 2: globex"
-	lacks "⏎"
 }
 
 @test "a term ending in punctuation matches before another word" {
@@ -1012,12 +993,12 @@ oldgit() {
 @test "check-push scans the name of a second file with the same content" {
 	repo
 	echo same >a.txt
-	echo same >acme-widgets.txt
+	echo same >globex-notes.txt
 	git add .
 	git commit -qm "two"
 	run "$AG" check-push origin < <(push_line HEAD refs/heads/main)
 	[ "$status" -eq 1 ]
-	has "file acme-widgets.txt: acme-widgets"
+	has "file globex-notes.txt: globex"
 }
 
 @test "check-push scans a submodule entry's name" {

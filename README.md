@@ -83,14 +83,12 @@ Acme Widgets
 globex.example
 ```
 
-A term matches anywhere, even inside a longer word, in any case, with
-anything but letters and digits, or nothing, between its words:
-`Acme Widgets` matches `acme-widgets`, `MyAcmeWidgetsApp`,
-`ACME_WIDGETS_KEY`, and `Acme` at the end of one line with `Widgets` at the
-start of the next. Punctuation only ever separates: `globex.example` matches
-`globex example` too, and `"Initech"` is plain `Initech`. Letters and
-digits are Unicode ones, and case folds across scripts, so `Zürich` matches
-`ZÜRICH` but not `Zurich`. List each spelling you want caught.
+A term is its line without the spaces around it, and it matches as written,
+in any case, anywhere, even inside a longer word: `Acme Widgets` matches
+`ACME WIDGETS` and `myacme widgetsapp`, but not `acme-widgets`,
+`AcmeWidgets`, or `Acme` at the end of one line with `Widgets` at the start
+of the next. Case folds across scripts, so `Zürich` matches `ZÜRICH` but not
+`Zurich`. A hit names the term as listed. List each spelling you want caught.
 
 Keep terms distinctive. A short one also matches inside everyday words, as
 `ace` does in `place`, and one made only of digits and the letters a to f
@@ -236,8 +234,9 @@ an edit to them, which the deny rules below rule out. A repo's own
 
 It matches text, and only what passes through its hooks:
 
-- a term rephrased, abbreviated, misspelt or encoded, or with an invisible
-  character inside it, such as a soft hyphen or a zero-width space;
+- a term rephrased, abbreviated, misspelt or encoded, spaced or punctuated
+  differently, split across lines, or with an invisible character inside
+  it, such as a soft hyphen or a zero-width space;
 - a term in a binary file that isn't in a run of 16 or more readable
   characters: a short metadata field, text in a zip, an image's pixels, or
   most of a PDF's pages;
@@ -248,8 +247,8 @@ It matches text, and only what passes through its hooks:
 
 ## Exit codes
 
-0 passes. 1 refuses, and says where each hit is: `path:line: match`,
-`commit <sha>: match`, `ref <name>: match`. 2 is a usage error. `check-json`
+0 passes. 1 refuses, and says where each hit is: `path:line: term`,
+`commit <sha>: term`, `ref <name>: term`. 2 is a usage error. `check-json`
 exits 2 on a refusal too, which blocks the call.
 
 ## Tests
