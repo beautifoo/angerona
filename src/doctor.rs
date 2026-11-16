@@ -130,37 +130,16 @@ pub fn run() -> i32 {
             break;
         }
         let hook = format!("angerona-{name}");
-        // Switched off on purpose, where the terms belong, or by mistake:
-        // either way the guard doesn't run here, and setting the hook again
-        // won't help. check-json reads the same switch.
-        let off = match switch::read(Path::new("."), &hook, event, true) {
-            Switch::On => None,
-            Switch::Off {
-                key,
-                by: By::Repo(scope, file),
-            } => Some(format!(
-                "{hook} is switched off by this repo's own config, {file}, which an agent can write; to switch it off on purpose, use an include in your global config (see README.md); if you didn't, fix: git config unset --{scope} {key}\n"
-            )),
-            Switch::Off {
-                key,
-                by: By::File(file),
-            } => Some(format!(
-                "{hook} is switched off here, by {file}; if this repo must not name the terms, fix: git config unset --file {file} {key}\n"
-            )),
-            Switch::Off {
-                by: By::Env(var), ..
-            } => Some(format!(
-                "{hook} is switched off here, by command line:; if this repo must not name the terms, fix: unset {var}\n"
-            )),
-            Switch::Unclear(why) => Some(format!(
-                "{hook}: can't tell whether it is switched off here, {why}\n"
-            )),
-        };
-        if let Some(off) = off {
-            problems += &off;
-            continue;
-        }
+        // git's own answer: whether it runs the hook here, skips it, or has
+        // none set up. git lists a switched-off hook only once it is set up.
         let list = git(&["hook", "list", event]);
+        let git_runs = list
+            .lines()
+            .find_map(|l| match l.split('\t').collect::<Vec<_>>()[..] {
+                [n] if n == hook => Some(true),
+                ["disabled" | "event-disabled", n, ..] if n == hook => Some(false),
+                _ => None,
+            });
         let cmd = git(&["config", "--get", &format!("hook.{hook}.command")]);
         let runs = cmd
             .trim_end_matches('\n')
@@ -172,11 +151,53 @@ pub fn run() -> i32 {
                 };
                 executable(Path::new(&path)) && args == mode
             });
-        if !(list.lines().any(|l| l == hook) && runs) {
-            problems += &format!(
-                "no {hook} hook for {event} here; fix:\ngit config set --global hook.{hook}.event {event}\ngit config set --global hook.{hook}.command '{me} {mode}'\n"
-            );
-        }
+        let missing = format!(
+            "no {hook} hook for {event} here; fix:\ngit config set --global hook.{hook}.event {event}\ngit config set --global hook.{hook}.command '{me} {mode}'\n"
+        );
+        // Switched off on purpose, where the terms belong, or by mistake:
+        // either way the guard doesn't run here, and setting the hook again
+        // won't help. check-json reads the same switch, so where it and git
+        // disagree, that is a problem too.
+        problems += &match (switch::read(Path::new("."), &hook, event, true), git_runs) {
+            (Switch::Unclear(why), _) => {
+                format!("{hook}: can't tell whether it is switched off here, {why}\n")
+            }
+            (_, None) => missing,
+            (Switch::On, Some(true)) if runs => String::new(),
+            (Switch::On, Some(true)) => missing,
+            (Switch::On, Some(false)) => format!(
+                "{hook}: git skips it here, but angerona reads it as on, from config it can't read; find it with: git config --show-origin --get-regexp '^hook\\.'\n"
+            ),
+            (Switch::Off { by, .. }, Some(true)) => format!(
+                "{hook}: git runs it here, but angerona reads it as switched off, by {by}\n"
+            ),
+            (
+                Switch::Off {
+                    key,
+                    by: By::Repo(scope, file),
+                },
+                Some(false),
+            ) => format!(
+                "{hook} is switched off by this repo's own config, {file}, which an agent can write; to switch it off on purpose, use an include in your global config (see README.md); if you didn't, fix: git config unset --{scope} {key}\n"
+            ),
+            (
+                Switch::Off {
+                    key,
+                    by: By::File(file),
+                },
+                Some(false),
+            ) => format!(
+                "{hook} is switched off here, by {file}; if this repo must not name the terms, fix: git config unset --file {file} {key}\n"
+            ),
+            (
+                Switch::Off {
+                    by: By::Env(var), ..
+                },
+                Some(false),
+            ) => format!(
+                "{hook} is switched off here, by command line:; if this repo must not name the terms, fix: unset {var}\n"
+            ),
+        };
     }
 
     // A PreToolUse entry whose matcher covers MCP tools, and whose hook runs

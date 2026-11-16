@@ -1064,6 +1064,39 @@ oldgit() {
 	has "fix: git config unset --local hook.pre-push.enabled"
 }
 
+@test "doctor can't tell whether a hook is switched off with ceiling directories set" {
+	repo
+	hooks
+	chmod 600 "$terms"
+	GIT_CEILING_DIRECTORIES=$BATS_TEST_TMPDIR run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "angerona-push: can't tell whether it is switched off here, as GIT_CEILING_DIRECTORIES is set; fix: run it without GIT_CEILING_DIRECTORIES"
+}
+
+@test "doctor asks for a hook that isn't set up, switched off or not, as git lists none" {
+	repo
+	chmod 600 "$terms"
+	git config hook.angerona-push.enabled false
+	run "$AG" doctor
+	has "no angerona-push hook for pre-push here; fix:"
+	lacks "angerona-push is switched off"
+}
+
+@test "doctor flags where git skips a hook but angerona reads it as on" {
+	repo
+	hooks
+	chmod 600 "$terms"
+	ln -s "$BATS_TEST_TMPDIR/clone" "$BATS_TEST_TMPDIR/link"
+	printf '[hook "angerona-push"]\n\tenabled = false\n' >"$BATS_TEST_TMPDIR/work.gitconfig"
+	git config --global "includeIf.gitdir:$BATS_TEST_TMPDIR/link/.path" "$BATS_TEST_TMPDIR/work.gitconfig"
+	cd "$BATS_TEST_TMPDIR/link/.git"
+	run git hook list pre-push
+	has "disabled"
+	run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "angerona-push: git skips it here, but angerona reads it as on"
+}
+
 @test "a \$PWD that isn't the cwd doesn't pick the repo" {
 	repo
 	git init -q inner
