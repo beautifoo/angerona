@@ -7,26 +7,34 @@ use std::{
     path::{Path, PathBuf},
 };
 
+// Where git starts looking for the repo from dir, by the path an includeIf
+// "gitdir:" sees, which gix matches only as given or as its real path. git
+// names the repo by $PWD, while that names the cwd, at the top of a worktree
+// whose .git is a directory; below it git moves to the top, where $PWD no
+// longer names its cwd, and a .git file names a real path. Elsewhere, then,
+// the real path.
+pub fn start(dir: &Path) -> std::io::Result<PathBuf> {
+    let ino = |p: &Path| fs::metadata(p).map(|m| (m.dev(), m.ino())).ok();
+    let cwd = env::var_os("PWD")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute() && ino(p).is_some() && ino(p) == ino(Path::new(".")))
+        .map_or_else(env::current_dir, Ok)?;
+    let named = std::path::absolute(cwd.join(dir))?;
+    if named.join(".git").is_dir() {
+        Ok(named)
+    } else {
+        Ok(fs::canonicalize(&named).unwrap_or(named))
+    }
+}
+
 // The repository git would use in dir, as a hook sees it: GIT_DIR and
 // GIT_INDEX_FILE, which git sets for the temporary index of commit -a or
 // commit <paths>, are honoured. Replace objects are off. Like git, ceiling
-// directories that don't cover dir are ignored, not an error. Like git, dir is
-// taken under $PWD while that names the cwd: gix matches an includeIf
-// "gitdir:" only against the path as given or its real path, so one through a
-// symlink, such as macOS's /var, would miss the real path the cwd reports.
+// directories that don't cover dir are ignored, not an error.
 pub fn open(dir: &Path) -> Result<gix::Repository, String> {
-    let cwd_ino = |p: &Path| fs::metadata(p).map(|m| (m.dev(), m.ino())).ok();
-    let cwd = env::var_os("PWD")
-        .map(PathBuf::from)
-        .filter(|p| {
-            p.is_absolute() && cwd_ino(p).is_some() && cwd_ino(p) == cwd_ino(Path::new("."))
-        })
-        .map_or_else(env::current_dir, Ok)
-        .and_then(|cwd| std::path::absolute(cwd.join(dir)))
-        .map_err(|e| e.to_string())?;
     let mut repo: gix::Repository =
         gix::ThreadSafeRepository::discover_with_environment_overrides_opts(
-            cwd,
+            start(dir).map_err(|e| e.to_string())?,
             gix::discover::upwards::Options {
                 match_ceiling_dir_or_error: false,
                 ..Default::default()

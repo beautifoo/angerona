@@ -945,6 +945,41 @@ oldgit() {
 	agree "every pre-push hook"
 }
 
+@test "a \$PWD that isn't the cwd doesn't pick the repo" {
+	repo
+	git init -q inner
+	echo "for globex" >bad
+	git add bad
+	run env PWD="$BATS_TEST_TMPDIR/clone/inner" "$AG" check-staged
+	[ "$status" -eq 1 ]
+	has "bad:1: globex"
+}
+
+@test "a path through a symlink counts where git counts it: at a worktree's top, not below" {
+	repo
+	hooks
+	chmod 600 "$terms"
+	mkdir sub
+	ln -s "$BATS_TEST_TMPDIR/clone" "$BATS_TEST_TMPDIR/link"
+	printf '[hook "angerona-push"]\n\tenabled = false\n' >"$BATS_TEST_TMPDIR/work.gitconfig"
+	git config --global "includeIf.gitdir:$BATS_TEST_TMPDIR/link/.path" "$BATS_TEST_TMPDIR/work.gitconfig"
+	input='{"tool_input":{"body":"for globex"}}'
+	cd "$BATS_TEST_TMPDIR/link"
+	run git hook list pre-push
+	has "disabled"
+	run "$AG" doctor
+	has "angerona-push is switched off here"
+	CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/link run "$AG" check-json <<<"$input"
+	[ "$status" -eq 0 ]
+	cd sub
+	run git hook list pre-push
+	lacks "disabled"
+	run "$AG" doctor
+	lacks "angerona-push is switched off"
+	CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/link/sub run "$AG" check-json <<<"$input"
+	[ "$status" -eq 2 ]
+}
+
 @test "a list saved with CRLF line ends still guards" {
 	printf 'zorblax\r\n# comment\r\n\r\nglobex\r\n' >"$terms"
 	run "$AG" check <<<"the zorblax plan"
