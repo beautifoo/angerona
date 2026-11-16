@@ -64,6 +64,8 @@ pub fn path() -> PathBuf {
 // One term per line, as written but for the whitespace around it. A line that
 // would merge terms or names nothing refuses the whole list, by its number.
 pub fn parse(text: &str) -> Result<Vec<String>, ListError> {
+    // An editor may start the file with a byte-order mark, which isn't whitespace.
+    let text = text.strip_prefix('\u{FEFF}').unwrap_or(text);
     let mut terms = Vec::new();
     for (i, line) in text.split('\n').enumerate() {
         // A list saved with CRLF line ends: the CR is not part of the term.
@@ -113,6 +115,14 @@ mod tests {
             parse("# c\n\n  # indented\nAcme Widgets\n\"Initech\"\n  globex.example \r\nZürich\n")
                 .unwrap(),
             vec!["Acme Widgets", "\"Initech\"", "globex.example", "Zürich"]
+        );
+    }
+
+    #[test]
+    fn skips_a_byte_order_mark() {
+        assert_eq!(
+            parse("\u{FEFF}globex\nzorblax\n").unwrap(),
+            vec!["globex", "zorblax"]
         );
     }
 
