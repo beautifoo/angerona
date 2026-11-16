@@ -13,18 +13,25 @@ pub struct Matcher {
     lower: AhoCorasick,
 }
 
+// Lowercase, but with a final sigma as any other: to_lowercase makes a capital
+// sigma final or not by what follows it, so a term ending in one would miss
+// itself inside a longer word. Both are two bytes, so offsets keep.
+fn fold(text: &str) -> String {
+    text.to_lowercase().replace('ς', "σ")
+}
+
 impl Matcher {
     pub fn new(terms: Vec<String>) -> Matcher {
-        let lower = AhoCorasick::new(terms.iter().map(|t| t.to_lowercase()))
+        let lower = AhoCorasick::new(terms.iter().map(|t| fold(t)))
             .expect("the term list made a bad pattern");
         Matcher { terms, lower }
     }
 
     // Each hit in text as (line, term as listed): every term found, overlaps
-    // included, by position. Lowercasing keeps every line break, so lines are
-    // counted in the lowercased text.
+    // included, by position. Folding keeps every line break, so lines are
+    // counted in the folded text.
     pub fn find(&self, text: &str) -> Vec<(usize, &str)> {
-        let text = text.to_lowercase();
+        let text = fold(text);
         let mut found: Vec<_> = self
             .lower
             .find_overlapping_iter(&text)
@@ -115,6 +122,15 @@ mod tests {
             parse("# c\n\n  # indented\nAcme Widgets\n\"Initech\"\n  globex.example \r\nZürich\n")
                 .unwrap(),
             vec!["Acme Widgets", "\"Initech\"", "globex.example", "Zürich"]
+        );
+    }
+
+    #[test]
+    fn folds_every_greek_sigma() {
+        let m = Matcher::new(vec!["ΝΙΚΟΣ".into(), "αλφα σ".into()]);
+        assert_eq!(
+            m.find("ΝΙΚΟΣAPI, the νικοσ plan, ΑΛΦΑ Σ"),
+            vec![(1, "ΝΙΚΟΣ"), (1, "ΝΙΚΟΣ"), (1, "αλφα σ")]
         );
     }
 
