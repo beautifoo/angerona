@@ -7,6 +7,7 @@ use gix::{
         parse::{EventRef, Events},
         source::Kind,
     },
+    discover::upwards,
     open::permissions::Config,
 };
 use std::{
@@ -64,9 +65,29 @@ pub fn read(dir: &Path, hook: &str, event: &str, may_run_git: bool) -> Switch {
         system: may_run_git,
         ..Config::all()
     };
-    let repo = staged::start(dir)
-        .ok()
-        .and_then(|start| staged::open_at(&start, sources).ok());
+    let repo = match staged::start(dir).map(|start| staged::open_at(&start, sources)) {
+        Ok(Ok(repo)) => Some(repo),
+        Ok(Err(e))
+            if e.downcast_any_ref::<upwards::Error>().is_some_and(|e| {
+                matches!(
+                    e,
+                    upwards::Error::NoGitRepository { .. }
+                        | upwards::Error::NoGitRepositoryWithinCeiling { .. }
+                        | upwards::Error::NoGitRepositoryWithinFs { .. }
+                )
+            }) =>
+        {
+            None
+        }
+        // A repo git reads but gix can't, such as one with SHA-256 objects.
+        Ok(Err(e)) => {
+            return Switch::Unclear(format!(
+                "as gix can't read this repo ({})",
+                e.probable_cause()
+            ));
+        }
+        Err(e) => return Switch::Unclear(format!("as its directory can't be read ({e})")),
+    };
     let (mut config, workdir) = match repo {
         Some(repo) if repo.git_dir_trust() != gix::sec::Trust::Full => {
             return Switch::Unclear("as git doesn't trust this repo".into());

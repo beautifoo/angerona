@@ -1017,6 +1017,20 @@ oldgit() {
 	[ "$status" -eq 0 ]
 }
 
+@test "in a repo gix can't open, the switch can't be read, and check-json scans" {
+	hooks
+	chmod 600 "$terms"
+	git init -q --object-format=sha256 "$BATS_TEST_TMPDIR/r256"
+	cd "$BATS_TEST_TMPDIR/r256"
+	git config hook.angerona-push.enabled false
+	run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "angerona-push: can't tell whether it is switched off here, as gix can't read this repo"
+	lacks "no angerona-push hook"
+	CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/r256 run "$AG" check-json <<<'{"tool_input":{"body":"for globex"}}'
+	[ "$status" -eq 2 ]
+}
+
 @test "a \$PWD that isn't the cwd doesn't pick the repo" {
 	repo
 	git init -q inner
