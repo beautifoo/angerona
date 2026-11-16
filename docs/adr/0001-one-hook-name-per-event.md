@@ -1,0 +1,3 @@
+# One hook name per event
+
+The guard is wired as three config hooks, `angerona-msg`, `angerona-staged` and `angerona-push`, each naming its mode on its command line, rather than as one `angerona` hook set on all three events. Git never tells a config hook which event it runs for: there is no config key for extra arguments and no environment variable (git 2.56.0 docs and source). One hook name could only guess the event from how many arguments git passes, and the mode has to be stated explicitly. The three names are now in users' global configs and in the files that switch the guard off, so renaming or merging them breaks both.
