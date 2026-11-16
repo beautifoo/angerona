@@ -1,6 +1,6 @@
 use crate::{
     list,
-    switch::{self, Switch},
+    switch::{self, By, Switch},
 };
 use regex::Regex;
 use serde_json::{Value, json};
@@ -145,13 +145,20 @@ pub fn run() -> i32 {
             Switch::On => None,
             Switch::Off {
                 key,
-                scope: Some(scope),
-                by,
+                by: By::Repo(scope, file),
             } => Some(format!(
-                "{hook} is switched off by this repo's own config, {by}, which an agent can write; to switch it off on purpose, use an include in your global config (see README.md); if you didn't, fix: git config unset --{scope} {key}\n"
+                "{hook} is switched off by this repo's own config, {file}, which an agent can write; to switch it off on purpose, use an include in your global config (see README.md); if you didn't, fix: git config unset --{scope} {key}\n"
             )),
-            Switch::Off { key, by, .. } => Some(format!(
-                "{hook} is switched off here, by {by}; if this repo must not name the terms, fix: git config unset --file {by} {key}\n"
+            Switch::Off {
+                key,
+                by: By::File(file),
+            } => Some(format!(
+                "{hook} is switched off here, by {file}; if this repo must not name the terms, fix: git config unset --file {file} {key}\n"
+            )),
+            Switch::Off {
+                by: By::Env(var), ..
+            } => Some(format!(
+                "{hook} is switched off here, by command line:; if this repo must not name the terms, fix: unset {var}\n"
             )),
             Switch::Unclear(why) => Some(format!(
                 "{hook}: can't tell whether it is switched off here, {why}\n"

@@ -986,6 +986,24 @@ oldgit() {
 	[ "$status" -eq 2 ]
 }
 
+@test "a switch-off from git -c or GIT_CONFIG_COUNT counts, named as git names it, with a fix that works" {
+	repo
+	hooks
+	chmod 600 "$terms"
+	input='{"tool_input":{"body":"for globex"}}'
+	export GIT_CONFIG_PARAMETERS="'hook.angerona-push.enabled'='false'"
+	run git hook list pre-push
+	has "disabled"
+	run "$AG" doctor
+	has "angerona-push is switched off here, by command line:; if this repo must not name the terms, fix: unset GIT_CONFIG_PARAMETERS"
+	CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/clone run "$AG" check-json <<<"$input"
+	[ "$status" -eq 0 ]
+	unset GIT_CONFIG_PARAMETERS
+	export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=hook.angerona-push.enabled GIT_CONFIG_VALUE_0=false
+	run "$AG" doctor
+	has "angerona-push is switched off here, by command line:; if this repo must not name the terms, fix: unset GIT_CONFIG_COUNT"
+}
+
 @test "a \$PWD that isn't the cwd doesn't pick the repo" {
 	repo
 	git init -q inner
