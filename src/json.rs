@@ -1,14 +1,11 @@
 use crate::{
     scan::{Item, Label, blob_item},
     staged,
+    switch::{self, Switch},
 };
-use gix::{
-    bstr::ByteSlice,
-    config::parse::{EventRef, Events},
-    remote::Direction,
-};
+use gix::{bstr::ByteSlice, remote::Direction};
 use serde_json::Value;
-use std::{collections::BTreeSet, env, fs, path::Path};
+use std::{collections::BTreeSet, fs, path::Path};
 
 // What a call sends: each string, labelled by its path of keys and indices
 // joined by ".", or "input" when the input is a string; the file a string
@@ -61,61 +58,15 @@ fn walk(
     }
 }
 
-pub fn git_bool(value: &str) -> Option<bool> {
-    gix::config::Boolean::try_from(value).ok().map(bool::from)
-}
-
 // Whether git, in dir, skips the push hook: then the session works on a repo
 // that may name the terms, and this returns the GitHub owners of the remote the
-// current branch pushes to. As git's hooks do, it reads every config scope but
-// not GIT_CONFIG, takes the last value that is a bool, and fails, so no work
-// session, on a hook's key with no value. gix's ceiling check is off by one
-// against git's, so with ceiling directories set it could find a repo git
-// doesn't: no work session either.
+// current branch pushes to. Outside a repo, there is none: no work session.
 pub fn work_owners(dir: &Path) -> Option<Vec<String>> {
-    if env::var_os("GIT_CEILING_DIRECTORIES").is_some_and(|v| !v.is_empty()) {
+    let Switch::Off { .. } = switch::read(dir, "angerona-push", "pre-push") else {
         return None;
-    }
+    };
     let repo = staged::open(dir).ok()?;
-    // gix opens a repo owned by someone else, and not in safe.directory, with
-    // its own config; git reads no repo there, so its switch can't count.
-    if repo.git_dir_trust() != gix::sec::Trust::Full {
-        return None;
-    }
     let config = repo.config_snapshot();
-    let (mut hook, mut event) = (None, None);
-    for section in config.plumbing().sections_by_name("hook")? {
-        let Some(name) = section.header().subsection_name() else {
-            continue;
-        };
-        // git fails on a hook's key with no "=", which gix reads as an empty
-        // value: only its events tell the two apart.
-        let text = section.to_bstring();
-        let events = Events::from_bytes(&text, None).ok()?;
-        let mut events = events
-            .iter()
-            .filter(|e| !matches!(e, EventRef::Whitespace(_)));
-        while let Some(e) = events.next() {
-            if matches!(e, EventRef::SectionValueName(_))
-                && !matches!(events.next(), Some(EventRef::KeyValueSeparator))
-            {
-                return None;
-            }
-        }
-        let last = section
-            .values("enabled")
-            .iter()
-            .rev()
-            .find_map(|v| git_bool(&v.to_str_lossy()));
-        if name == "angerona-push" {
-            hook = last.or(hook);
-        } else if name == "pre-push" {
-            event = last.or(event);
-        }
-    }
-    if hook != Some(false) && event != Some(false) {
-        return None;
-    }
     // The remote the branch pushes to, as git resolves it. A remote that doesn't
     // exist, or has no URL, names no owner.
     let branch = repo.head_name().ok()?.and_then(|n| {
@@ -197,17 +148,6 @@ fn owners_named<'a>(v: &'a Value, out: &mut Vec<&'a Value>) {
 mod tests {
     use super::*;
     use serde_json::json;
-
-    #[test]
-    fn reads_bools_as_git_does() {
-        for v in ["false", "no", "off", "0", "0x0", "0k", ""] {
-            assert_eq!(git_bool(v), Some(false), "{v}");
-        }
-        for v in ["true", "yes", "on", "1", "2", "1k"] {
-            assert_eq!(git_bool(v), Some(true), "{v}");
-        }
-        assert_eq!(git_bool("maybe"), None);
-    }
 
     #[test]
     fn finds_github_owners_in_remote_urls() {

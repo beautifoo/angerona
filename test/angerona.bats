@@ -926,6 +926,42 @@ oldgit() {
 	lacks "angerona-msg"
 }
 
+@test "doctor can't tell whether a hook is switched off when a hook key has no value" {
+	repo
+	hooks
+	printf '[hook "angerona-push"]\n\tenabled\n' >>.git/config
+	chmod 600 "$terms"
+	run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "angerona-push: can't tell whether it is switched off here, as .git/config has hook.angerona-push.enabled with no value, which git can't read; fix: give it one"
+	lacks "no angerona-push hook"
+}
+
+@test "doctor says the push hook is switched off exactly where check-json starts a work session" {
+	repo
+	hooks
+	chmod 600 "$terms"
+	agree() {
+		local off=0 passes=0
+		run "$AG" doctor
+		[[ $output == *"angerona-push is switched off"* ]] && off=1
+		CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/clone run "$AG" check-json <<<'{"tool_input":{"body":"for globex"}}'
+		[ "$status" -eq 0 ] && passes=1
+		[ "$off" -eq "$passes" ] || { echo "$1: doctor says off: $off, check-json passes: $passes"; return 1; }
+	}
+	agree "switched on"
+	printf '[hook "angerona-push"]\n\tenabled = false\n' >"$BATS_TEST_TMPDIR/work.gitconfig"
+	git config --global "includeIf.gitdir:$BATS_TEST_TMPDIR/clone/.path" "$BATS_TEST_TMPDIR/work.gitconfig"
+	agree "a global include"
+	GIT_CEILING_DIRECTORIES=$BATS_TEST_TMPDIR agree "ceiling directories"
+	git config --global --unset "includeIf.gitdir:$BATS_TEST_TMPDIR/clone/.path"
+	git config hook.angerona-push.enabled false
+	agree "the repo's own config"
+	git config --unset hook.angerona-push.enabled
+	git config hook.pre-push.enabled false
+	agree "every pre-push hook"
+}
+
 @test "a list saved with CRLF line ends still guards" {
 	printf 'zorblax\r\n# comment\r\n\r\nglobex\r\n' >"$terms"
 	run "$AG" check <<<"the zorblax plan"

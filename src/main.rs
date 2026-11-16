@@ -5,6 +5,7 @@ mod msg;
 mod push;
 mod scan;
 mod staged;
+mod switch;
 
 use scan::{Item, Label, fail, finish};
 use std::{

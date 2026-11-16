@@ -1,4 +1,7 @@
-use crate::list;
+use crate::{
+    list,
+    switch::{self, Switch},
+};
 use regex::Regex;
 use serde_json::{Value, json};
 use std::{
@@ -135,33 +138,30 @@ pub fn run() -> i32 {
             break;
         }
         let hook = format!("angerona-{name}");
-        let list = git(&["hook", "list", event]);
         // Switched off on purpose, where the terms belong, or by mistake:
         // either way the guard doesn't run here, and setting the hook again
-        // won't help. git's hooks decide, not git config, which reads values
-        // they drop and files they don't.
-        let off = list
-            .lines()
-            .find_map(|l| match l.split('\t').collect::<Vec<_>>()[..] {
-                ["disabled", n, ..] if n == hook => Some(format!("hook.{hook}.enabled")),
-                ["event-disabled", n, ..] if n == hook => Some(format!("hook.{event}.enabled")),
-                _ => None,
-            });
-        if let Some(key) = off {
-            let shown = git(&["config", "--show-scope", "--show-origin", "--get", &key]);
-            let mut f = shown.lines().next().unwrap_or("").split('\t');
-            let (scope, origin) = (f.next().unwrap_or(""), f.next().unwrap_or(""));
-            let origin = origin.strip_prefix("file:").unwrap_or(origin);
-            problems += &match scope {
-                "local" | "worktree" => format!(
-                    "{hook} is switched off by this repo's own config, {origin}, which an agent can write; to switch it off on purpose, use an include in your global config (see README.md); if you didn't, fix: git config unset --{scope} {key}\n"
-                ),
-                _ => format!(
-                    "{hook} is switched off here, by {origin}; if this repo must not name the terms, fix: git config unset --file {origin} {key}\n"
-                ),
-            };
+        // won't help. check-json reads the same switch.
+        let off = match switch::read(Path::new("."), &hook, event) {
+            Switch::On => None,
+            Switch::Off {
+                key,
+                scope: Some(scope),
+                by,
+            } => Some(format!(
+                "{hook} is switched off by this repo's own config, {by}, which an agent can write; to switch it off on purpose, use an include in your global config (see README.md); if you didn't, fix: git config unset --{scope} {key}\n"
+            )),
+            Switch::Off { key, by, .. } => Some(format!(
+                "{hook} is switched off here, by {by}; if this repo must not name the terms, fix: git config unset --file {by} {key}\n"
+            )),
+            Switch::Unclear(why) => Some(format!(
+                "{hook}: can't tell whether it is switched off here, {why}\n"
+            )),
+        };
+        if let Some(off) = off {
+            problems += &off;
             continue;
         }
+        let list = git(&["hook", "list", event]);
         let cmd = git(&["config", "--get", &format!("hook.{hook}.command")]);
         let runs = cmd
             .trim_end_matches('\n')
