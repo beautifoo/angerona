@@ -141,7 +141,7 @@ pub fn run() -> i32 {
         // Switched off on purpose, where the terms belong, or by mistake:
         // either way the guard doesn't run here, and setting the hook again
         // won't help. check-json reads the same switch.
-        let off = match switch::read(Path::new("."), &hook, event) {
+        let off = match switch::read(Path::new("."), &hook, event, true) {
             Switch::On => None,
             Switch::Off {
                 key,

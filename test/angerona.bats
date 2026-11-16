@@ -945,6 +945,47 @@ oldgit() {
 	agree "every pre-push hook"
 }
 
+@test "check-json runs no git, in a repo or outside one" {
+	repo
+	hooks
+	mkdir "$BATS_TEST_TMPDIR/bin" "$BATS_TEST_TMPDIR/plain"
+	log=$BATS_TEST_TMPDIR/git.log
+	printf '#!/bin/sh\necho "$*" >>%s\nexec %s "$@"\n' "$log" "$(command -v git)" >"$BATS_TEST_TMPDIR/bin/git"
+	chmod +x "$BATS_TEST_TMPDIR/bin/git"
+	for dir in "$BATS_TEST_TMPDIR/clone" "$BATS_TEST_TMPDIR/plain"; do
+		env -u GIT_CONFIG_NOSYSTEM PATH="$BATS_TEST_TMPDIR/bin:$PATH" CLAUDE_PROJECT_DIR="$dir" \
+			"$AG" check-json <<<'{"tool_input":{"body":"fine"}}'
+	done
+	[ ! -e "$log" ] || { cat "$log"; return 1; }
+}
+
+@test "a system-wide switch-off: doctor names it, check-json still scans" {
+	repo
+	hooks
+	chmod 600 "$terms"
+	printf '[hook "angerona-push"]\n\tenabled = false\n' >"$BATS_TEST_TMPDIR/system.gitconfig"
+	export GIT_CONFIG_SYSTEM=$BATS_TEST_TMPDIR/system.gitconfig
+	unset GIT_CONFIG_NOSYSTEM
+	run git hook list pre-push
+	has "disabled"
+	run "$AG" doctor
+	has "angerona-push is switched off here, by $BATS_TEST_TMPDIR/system.gitconfig"
+	CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/clone run "$AG" check-json <<<'{"tool_input":{"body":"for globex"}}'
+	[ "$status" -eq 2 ]
+}
+
+@test "outside a repo a global switch-off counts for doctor, but check-json still scans" {
+	hooks
+	chmod 600 "$terms"
+	git config --global hook.angerona-push.enabled false
+	mkdir "$BATS_TEST_TMPDIR/plain"
+	cd "$BATS_TEST_TMPDIR/plain"
+	run "$AG" doctor
+	has "angerona-push is switched off here, by $BATS_TEST_TMPDIR/gitconfig"
+	CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/plain run "$AG" check-json <<<'{"tool_name":"mcp__plugin_slack_slack__send","tool_input":{"text":"for globex"}}'
+	[ "$status" -eq 2 ]
+}
+
 @test "a \$PWD that isn't the cwd doesn't pick the repo" {
 	repo
 	git init -q inner

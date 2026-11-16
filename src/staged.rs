@@ -1,5 +1,5 @@
 use crate::scan::{Item, Label, blob_item};
-use gix::index::entry::Mode;
+use gix::{index::entry::Mode, open::permissions::Config};
 use std::{
     env, fs,
     ops::ControlFlow,
@@ -27,24 +27,32 @@ pub fn start(dir: &Path) -> std::io::Result<PathBuf> {
     }
 }
 
-// The repository git would use in dir, as a hook sees it: GIT_DIR and
-// GIT_INDEX_FILE, which git sets for the temporary index of commit -a or
-// commit <paths>, are honoured. Replace objects are off. Like git, ceiling
-// directories that don't cover dir are ignored, not an error.
-pub fn open(dir: &Path) -> Result<gix::Repository, String> {
+// The repository git would use from start, as a hook sees it, reading the
+// config sources config allows: GIT_DIR and GIT_INDEX_FILE, which git sets for
+// the temporary index of commit -a or commit <paths>, are honoured. Replace
+// objects are off. Like git, ceiling directories that don't cover start are
+// ignored, not an error.
+pub fn open_at(start: &Path, config: Config) -> Result<gix::Repository, gix::Error> {
+    let mut trust = gix::sec::trust::Mapping::<gix::open::Options>::default();
+    trust.full.permissions.config = config;
     let mut repo: gix::Repository =
         gix::ThreadSafeRepository::discover_with_environment_overrides_opts(
-            start(dir).map_err(|e| e.to_string())?,
+            start,
             gix::discover::upwards::Options {
                 match_ceiling_dir_or_error: false,
                 ..Default::default()
             },
-            Default::default(),
-        )
-        .map_err(|e| e.to_string())?
+            trust,
+        )?
         .into();
     repo.objects.ignore_replacements = true;
     Ok(repo)
+}
+
+// The repository git would use in dir, with every config source but the git
+// binary's own, which only running git can find.
+pub fn open(dir: &Path) -> Result<gix::Repository, String> {
+    open_at(&start(dir).map_err(|e| e.to_string())?, Config::all()).map_err(|e| e.to_string())
 }
 
 // What the commit adds: the identity it will carry, each staged file in full,

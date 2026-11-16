@@ -3,11 +3,16 @@ use gix::{
     bstr::ByteSlice,
     config::{
         File, Source,
-        file::Metadata,
+        file::{Metadata, init},
         parse::{EventRef, Events},
+        source::Kind,
     },
+    open::permissions::Config,
 };
-use std::{env, path::Path};
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
 
 pub enum Switch {
     On,
@@ -28,18 +33,29 @@ pub fn git_bool(value: &str) -> Option<bool> {
 
 // Whether git, in dir, runs hook for event or skips it. As git's hooks do, it
 // reads every config scope but not GIT_CONFIG, the global ones alone outside a
-// repo, and takes the last value that is a bool. gix's ceiling check is off by
-// one against git's, so with ceiling directories set it could find a repo git
-// doesn't; and gix opens a repo owned by someone else, and not in
+// repo, and takes the last value that is a bool. The system config git reads
+// is the one it was built with, which only running git can say: with
+// may_run_git it is read, and without, no system config is, so a system-wide
+// switch-off reads as on, never one git ignores as off. gix's ceiling check is
+// off by one against git's, so with ceiling directories set it could find a
+// repo git doesn't; and gix opens a repo owned by someone else, and not in
 // safe.directory, with its own config, where git reads no repo at all.
-pub fn read(dir: &Path, hook: &str, event: &str) -> Switch {
+pub fn read(dir: &Path, hook: &str, event: &str, may_run_git: bool) -> Switch {
     if env::var_os("GIT_CEILING_DIRECTORIES").is_some_and(|v| !v.is_empty()) {
         return Switch::Unclear(
             "as GIT_CEILING_DIRECTORIES is set; fix: run it without GIT_CEILING_DIRECTORIES".into(),
         );
     }
-    let Ok(repo) = staged::open(dir) else {
-        return File::from_globals().map_or(Switch::On, |config| rule(&config, None, hook, event));
+    let sources = Config {
+        git_binary: may_run_git,
+        system: may_run_git,
+        ..Config::all()
+    };
+    let repo = staged::start(dir)
+        .ok()
+        .and_then(|start| staged::open_at(&start, sources).ok());
+    let Some(repo) = repo else {
+        return globals(may_run_git).map_or(Switch::On, |config| rule(&config, None, hook, event));
     };
     if repo.git_dir_trust() != gix::sec::Trust::Full {
         return Switch::Unclear("as git doesn't trust this repo".into());
@@ -50,6 +66,37 @@ pub fn read(dir: &Path, hook: &str, event: &str) -> Switch {
         hook,
         event,
     )
+}
+
+// The config git reads outside a repo: the global files and GIT_CONFIG_COUNT,
+// with the system config only when git may run to say where it is.
+fn globals(may_run_git: bool) -> Option<File> {
+    let mut config = if may_run_git {
+        File::from_globals().ok()?
+    } else {
+        let global = Kind::Global.sources().iter().map(|&source| Metadata {
+            path: source
+                .storage_location(&mut |name| env::var_os(name))
+                .filter(|p| p.is_file()),
+            source,
+            level: 0,
+            trust: gix::sec::Trust::Full,
+        });
+        let home = env::var_os("HOME").map(PathBuf::from);
+        let options = init::Options {
+            includes: gix::config::file::includes::Options::follow_without_conditional(
+                home.as_deref(),
+            ),
+            ..Default::default()
+        };
+        File::from_paths_metadata(global, options)
+            .ok()?
+            .unwrap_or_default()
+    };
+    config
+        .append(File::from_environment_overrides().ok()?)
+        .ok()?;
+    Some(config)
 }
 
 fn rule(config: &File, workdir: Option<&Path>, hook: &str, event: &str) -> Switch {
