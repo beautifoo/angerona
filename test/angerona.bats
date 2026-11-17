@@ -1134,6 +1134,24 @@ oldgit() {
 	[ "$status" -eq 2 ]
 }
 
+@test "in a linked worktree, an includeIf \"gitdir:\" matches its own git dir, as git does" {
+	repo
+	hooks
+	git worktree add -q "$BATS_TEST_TMPDIR/wt"
+	printf '[hook "angerona-push"]\n\tenabled = false\n' >"$BATS_TEST_TMPDIR/work.gitconfig"
+	git config --global "includeIf.gitdir:**/clone/.git.path" "$BATS_TEST_TMPDIR/work.gitconfig"
+	input='{"tool_input":{"body":"for globex"}}'
+	run git hook list pre-push
+	has "disabled"
+	CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/clone run "$AG" check-json <<<"$input"
+	[ "$status" -eq 0 ]
+	cd "$BATS_TEST_TMPDIR/wt"
+	run git hook list pre-push
+	lacks "disabled"
+	CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/wt run "$AG" check-json <<<"$input"
+	[ "$status" -eq 2 ]
+}
+
 @test "a list saved with CRLF line ends still guards" {
 	printf 'zorblax\r\n# comment\r\n\r\nglobex\r\n' >"$terms"
 	run "$AG" check <<<"the zorblax plan"

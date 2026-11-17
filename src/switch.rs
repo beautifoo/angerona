@@ -3,8 +3,9 @@ use gix::{
     bstr::ByteSlice,
     config::{
         File, Source,
-        file::{Metadata, init},
+        file::{Metadata, includes, includes::conditional, init},
         parse::{EventRef, Events},
+        path::interpolate,
         source::Kind,
     },
     discover::upwards,
@@ -67,9 +68,13 @@ pub fn read(dir: &Path, hook: &str, may_run_git: bool) -> Switch {
             "as git -c values are set; fix: run it without GIT_CONFIG_PARAMETERS".into(),
         );
     }
+    // Includes are followed below: in a linked worktree gix matches an
+    // includeIf "gitdir:" against the main repo's git dir, git against the
+    // worktree's own.
     let sources = Config {
         git_binary: may_run_git,
         system: may_run_git,
+        includes: false,
         ..Config::all()
     };
     let start = match staged::start(dir) {
@@ -104,10 +109,30 @@ pub fn read(dir: &Path, hook: &str, may_run_git: bool) -> Switch {
         Some(repo) if repo.git_dir_trust() != gix::sec::Trust::Full => {
             return Switch::Unclear("as git doesn't trust this repo".into());
         }
-        Some(repo) => (
-            repo.config_snapshot().plumbing().clone(),
-            [Some(start), repo.workdir().map(Path::to_path_buf)],
-        ),
+        Some(repo) => {
+            let mut config = repo.config_snapshot().plumbing().clone();
+            let home = env::var_os("HOME").map(PathBuf::from);
+            let branch = repo.head_name().ok().flatten();
+            let includes = includes::Options::follow(
+                interpolate::Context {
+                    home_dir: home.as_deref(),
+                    home_for_user: Some(interpolate::home_for_user),
+                    ..Default::default()
+                },
+                conditional::Context {
+                    git_dir: Some(repo.git_dir()),
+                    branch_name: branch.as_ref().map(AsRef::as_ref),
+                },
+            );
+            let options = init::Options {
+                includes,
+                ..Default::default()
+            };
+            if let Err(e) = config.resolve_includes(options) {
+                return Switch::Unclear(format!("as its config's includes can't be read ({e})"));
+            }
+            (config, [Some(start), repo.workdir().map(Path::to_path_buf)])
+        }
         None => match globals(may_run_git) {
             Some(config) => (config, [None, None]),
             None => return Switch::On,
