@@ -690,12 +690,12 @@ raw_commit() {
 	[ "$status" -eq 0 ]
 }
 
-@test "check-json passes where git switches off every pre-push hook" {
+@test "check-json scans where only the event's key is off, which git 2.54 ignores" {
 	repo
 	hooks
 	git config hook.pre-push.enabled false
 	CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/clone run "$AG" check-json <<<'{"tool_input":{"body":"for globex"}}'
-	[ "$status" -eq 0 ]
+	[ "$status" -eq 2 ]
 }
 
 @test "check-json, in a work session, passes GitHub calls only to the repo's own owners" {
@@ -1052,7 +1052,7 @@ oldgit() {
 	cd "$BATS_TEST_TMPDIR" && GIT_DIR=clone/.git same
 }
 
-@test "with both keys off, doctor names the event's, as git does" {
+@test "with both keys off, doctor names the hook's, which every git reads" {
 	repo
 	hooks
 	chmod 600 "$terms"
@@ -1061,7 +1061,7 @@ oldgit() {
 	run git hook list pre-push
 	has "event-disabled"
 	run "$AG" doctor
-	has "fix: git config unset --local hook.pre-push.enabled"
+	has "fix: git config unset --local hook.angerona-push.enabled"
 }
 
 @test "doctor can't tell whether a hook is switched off with ceiling directories set" {

@@ -45,7 +45,7 @@ pub fn git_bool(value: &str) -> Option<bool> {
     gix::config::Boolean::try_from(value).ok().map(bool::from)
 }
 
-// Whether git, in dir, runs hook for event or skips it. As git's hooks do, it
+// Whether git, in dir, runs hook or skips it. As git's hooks do, it
 // reads every config scope but not GIT_CONFIG, the global ones alone outside a
 // repo, and takes the last value that is a bool. The system config git reads
 // is the one it was built with, which only running git can say: with
@@ -54,7 +54,7 @@ pub fn git_bool(value: &str) -> Option<bool> {
 // off by one against git's, so with ceiling directories set it could find a
 // repo git doesn't; and gix opens a repo owned by someone else, and not in
 // safe.directory, with its own config, where git reads no repo at all.
-pub fn read(dir: &Path, hook: &str, event: &str, may_run_git: bool) -> Switch {
+pub fn read(dir: &Path, hook: &str, may_run_git: bool) -> Switch {
     if env::var_os("GIT_CEILING_DIRECTORIES").is_some_and(|v| !v.is_empty()) {
         return Switch::Unclear(
             "as GIT_CEILING_DIRECTORIES is set; fix: run it without GIT_CEILING_DIRECTORIES".into(),
@@ -114,7 +114,7 @@ pub fn read(dir: &Path, hook: &str, event: &str, may_run_git: bool) -> Switch {
             "as git can't read GIT_CONFIG_PARAMETERS; fix: unset GIT_CONFIG_PARAMETERS".into(),
         );
     }
-    rule(&config, &from, hook, event)
+    rule(&config, &from, hook)
 }
 
 // The entries of GIT_CONFIG_PARAMETERS, where git -c hands its values to the
@@ -251,7 +251,7 @@ fn named(file: &Path, from: &[Option<PathBuf>]) -> String {
         .to_string()
 }
 
-fn rule(config: &File, from: &[Option<PathBuf>], hook: &str, event: &str) -> Switch {
+fn rule(config: &File, from: &[Option<PathBuf>], hook: &str) -> Switch {
     let by = |meta: &Metadata| match (&meta.path, meta.source) {
         (Some(p), Source::Local | Source::Worktree) => By::Repo(
             if meta.source == Source::Local {
@@ -265,7 +265,7 @@ fn rule(config: &File, from: &[Option<PathBuf>], hook: &str, event: &str) -> Swi
         (None, Source::Cli) => By::Env("GIT_CONFIG_PARAMETERS"),
         (None, _) => By::Env("GIT_CONFIG_COUNT"),
     };
-    let (mut by_hook, mut by_event) = (None, None);
+    let mut by_hook = None;
     for section in config.sections_by_name("hook").into_iter().flatten() {
         let Some(name) = section.header().subsection_name() else {
             continue;
@@ -299,25 +299,20 @@ fn rule(config: &File, from: &[Option<PathBuf>], hook: &str, event: &str) -> Swi
         } else {
             name.to_vec()
         };
-        let slot = if name == hook.as_bytes() {
-            &mut by_hook
-        } else if name == event.as_bytes() {
-            &mut by_event
-        } else {
+        // git 2.54 has no hook.<event>.enabled, so only the hook's own key
+        // switches it off on every git angerona supports.
+        if name != hook.as_bytes() {
             continue;
-        };
+        }
         if let Some(on) = last {
-            *slot = Some((on, section.meta()));
+            by_hook = Some((on, section.meta()));
         }
     }
-    // With both off, git names the event's, and only unsetting that runs it.
-    let (key, meta) = match (by_hook, by_event) {
-        (_, Some((false, meta))) => (event, meta),
-        (Some((false, meta)), _) => (hook, meta),
-        _ => return Switch::On,
+    let Some((false, meta)) = by_hook else {
+        return Switch::On;
     };
     Switch::Off {
-        key: format!("hook.{key}.enabled"),
+        key: format!("hook.{hook}.enabled"),
         by: by(meta),
     }
 }
