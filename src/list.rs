@@ -134,8 +134,8 @@ mod tests {
     fn folds_every_greek_sigma() {
         let m = Matcher::new(vec!["ΝΙΚΟΣ".into(), "αλφα σ".into()]);
         assert_eq!(
-            m.find("ΝΙΚΟΣAPI, the νικοσ plan, ΑΛΦΑ Σ"),
-            vec![(1, "ΝΙΚΟΣ"), (1, "ΝΙΚΟΣ"), (1, "αλφα σ")]
+            m.find("ΝΙΚΟΣAPI, the νικοσ plan, ΑΛΦΑ Σ, ΝΙΚΟΣ"),
+            vec![(1, "ΝΙΚΟΣ"), (1, "ΝΙΚΟΣ"), (1, "αλφα σ"), (1, "ΝΙΚΟΣ")]
         );
     }
 
