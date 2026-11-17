@@ -83,11 +83,16 @@ pub fn parse(text: &str) -> Result<Vec<String>, ListError> {
         }
         // A tab means two terms on one line, a CR left over means CR-only
         // line ends, and a # after whitespace a comment on the line of a term:
-        // each would merge terms into one.
+        // each would merge terms into one. A BOM, soft hyphen or zero-width
+        // character past the file's start is invisible, and would keep the term
+        // from ever matching.
         let comment = line
             .match_indices('#')
             .any(|(at, _)| line[..at].ends_with(char::is_whitespace));
-        if line.contains(['\t', '\r']) || comment || !term.contains(char::is_alphanumeric) {
+        if line.contains(['\t', '\r', '\u{AD}', '\u{200B}', '\u{2060}', '\u{FEFF}'])
+            || comment
+            || !term.contains(char::is_alphanumeric)
+        {
             return Err(ListError::NotATerm(i + 1));
         }
         terms.push(term.to_string());
@@ -149,6 +154,10 @@ mod tests {
             ("x\ra\n", 1),
             ("acme # note\n", 1),
             ("---\n", 1),
+            ("zorblax\n\u{FEFF}globex\n", 2),
+            ("glo\u{AD}bex\n", 1),
+            ("globex\u{200B}\n", 1),
+            ("\u{2060}globex\n", 1),
         ] {
             assert!(
                 matches!(parse(text), Err(ListError::NotATerm(m)) if m == n),
