@@ -1,6 +1,6 @@
 use crate::{
+    repo,
     scan::{Item, Label, blob_item},
-    staged,
     switch::{self, Switch},
 };
 use gix::{bstr::ByteSlice, remote::Direction};
@@ -65,7 +65,7 @@ pub fn work_owners(dir: &Path) -> Option<Vec<String>> {
     let Switch::Off { .. } = switch::read(dir, "angerona-push", false) else {
         return None;
     };
-    let repo = staged::open(dir).ok()?;
+    let repo = repo::open(dir).ok()?;
     let config = repo.config_snapshot();
     // The remote the branch pushes to, as git resolves it. A remote that doesn't
     // exist, or has no URL, names no owner.

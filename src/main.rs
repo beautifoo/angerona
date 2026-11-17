@@ -3,6 +3,7 @@ mod json;
 mod list;
 mod msg;
 mod push;
+mod repo;
 mod scan;
 mod staged;
 mod switch;
@@ -64,7 +65,7 @@ fn main() {
             )
         }
         ("check-staged", _) => finish(
-            &staged::open(Path::new("."))
+            &repo::open(Path::new("."))
                 .and_then(|repo| staged::items(&repo))
                 .unwrap_or_else(|e| fail(&format!("git failed reading the commit ({e})"), 1)),
             1,
@@ -79,7 +80,7 @@ fn main() {
                 .filter_map(push::parse_ref_line)
                 .collect();
             finish(
-                &staged::open(Path::new("."))
+                &repo::open(Path::new("."))
                     .and_then(|repo| {
                         // A push of only deletions sends nothing: no need to ask.
                         let held = if refs.is_empty() {

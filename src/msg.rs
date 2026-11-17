@@ -1,4 +1,4 @@
-use crate::staged;
+use crate::repo;
 use regex::bytes::Regex;
 use std::path::Path;
 
@@ -30,7 +30,7 @@ pub fn message(text: &[u8], editor_used: bool, comment: &str) -> Vec<u8> {
 // Git itself rejects an empty one and picks a character for auto, so both
 // fall back to "#" rather than blank every line.
 pub fn comment_string() -> String {
-    let Ok(repo) = staged::open(Path::new(".")) else {
+    let Ok(repo) = repo::open(Path::new(".")) else {
         return "#".into();
     };
     let config = repo.config_snapshot();

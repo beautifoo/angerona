@@ -1,4 +1,4 @@
-use crate::staged;
+use crate::repo;
 use gix::{
     bstr::ByteSlice,
     config::{
@@ -77,11 +77,11 @@ pub fn read(dir: &Path, hook: &str, may_run_git: bool) -> Switch {
         includes: false,
         ..Config::all()
     };
-    let start = match staged::start(dir) {
+    let start = match repo::start(dir) {
         Ok(start) => start,
         Err(e) => return Switch::Unclear(format!("as its directory can't be read ({e})")),
     };
-    let repo = match staged::open_at(&start, sources) {
+    let repo = match repo::open_at(&start, sources) {
         Ok(repo) => Some(repo),
         Err(e)
             if e.downcast_any_ref::<upwards::Error>().is_some_and(|e| {
@@ -176,7 +176,7 @@ fn globals(may_run_git: bool) -> Option<File> {
 // that is set; else from the first of from that holds it; else in full, with
 // any ".." folded, as a linked worktree's shared config.
 fn named(file: &Path, from: &[Option<PathBuf>]) -> String {
-    let file = staged::fold(file);
+    let file = repo::fold_dotdot(file);
     let given = env::var_os("GIT_DIR").map(PathBuf::from);
     given
         .and_then(|dir| {

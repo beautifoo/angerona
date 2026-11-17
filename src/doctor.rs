@@ -1,5 +1,5 @@
 use crate::{
-    list, staged,
+    list, repo,
     switch::{self, By, Switch},
 };
 use regex::Regex;
@@ -34,7 +34,7 @@ pub fn run() -> i32 {
     let (mut notes, mut problems, mut old) = (String::new(), String::new(), false);
     // Fold a "..", so the fix reads the same however the binary was run.
     let me = env::current_exe().map_or("angerona".into(), |p| {
-        staged::fold(&p).display().to_string()
+        repo::fold_dotdot(&p).display().to_string()
     });
     let home = env::var("HOME").ok();
 
