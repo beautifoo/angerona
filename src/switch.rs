@@ -197,16 +197,9 @@ fn named(file: &Path, from: &[Option<PathBuf>]) -> String {
 
 fn rule(config: &File, from: &[Option<PathBuf>], hook: &str) -> Switch {
     let by = |meta: &Metadata| match (&meta.path, meta.source) {
-        (Some(p), Source::Local | Source::Worktree) => By::Repo(
-            if meta.source == Source::Local {
-                "local"
-            } else {
-                "worktree"
-            },
-            named(p, from),
-        ),
+        (Some(p), Source::Local) => By::Repo("local", named(p, from)),
+        (Some(p), Source::Worktree) => By::Repo("worktree", named(p, from)),
         (Some(p), _) => By::File(p.display().to_string()),
-
         (None, _) => By::Env,
     };
     let mut by_hook = None;
@@ -238,7 +231,7 @@ fn rule(config: &File, from: &[Option<PathBuf>], hook: &str) -> Switch {
             .rev()
             .find_map(|v| git_bool(&v.to_str_lossy()));
         // In the old [hook.Name] syntax git lowercases the name.
-        let name = if text.get(5) == Some(&b'.') {
+        let name = if section.header().is_legacy() {
             name.to_ascii_lowercase()
         } else {
             name.to_vec()
