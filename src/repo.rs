@@ -1,6 +1,8 @@
 use gix::open::permissions::Config;
 use std::{
-    env, fs,
+    env,
+    error::Error,
+    fs,
     os::unix::fs::MetadataExt,
     path::{Component, Path, PathBuf},
 };
@@ -70,6 +72,6 @@ pub fn open_at(start: &Path, config: Config) -> Result<gix::Repository, gix::Err
 
 // The repository git would use in dir, with every config source but the git
 // binary's own, which only running git can find.
-pub fn open(dir: &Path) -> Result<gix::Repository, String> {
-    open_at(&start(dir).map_err(|e| e.to_string())?, Config::all()).map_err(|e| e.to_string())
+pub fn open(dir: &Path) -> Result<gix::Repository, Box<dyn Error>> {
+    Ok(open_at(&start(dir)?, Config::all())?)
 }

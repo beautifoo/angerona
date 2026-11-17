@@ -1,24 +1,21 @@
 use crate::scan::{Item, Label, blob_item};
 use gix::index::entry::Mode;
-use std::{env, ops::ControlFlow};
+use std::{env, error::Error, ops::ControlFlow};
 
 // What the commit adds: the identity it will carry, each staged file in full,
 // then the staged files' names, submodules' too, each its own item so that two
 // names never spell a term between them.
-pub fn items(repo: &gix::Repository) -> Result<Vec<Item>, String> {
-    let err = |e: gix::Error| e.to_string();
-    let tree = repo.head_tree_id_or_empty().map_err(err)?.detach();
-    let index = repo.index_or_empty().map_err(err)?;
+pub fn items(repo: &gix::Repository) -> Result<Vec<Item>, Box<dyn Error>> {
+    let tree = repo.head_tree_id_or_empty()?.detach();
+    let index = repo.index_or_empty()?;
     // Without patterns this matches every path, not only those under the cwd.
-    let mut everything = repo
-        .pathspec(
-            false,
-            None::<&str>,
-            false,
-            &gix::index::State::new(repo.object_hash()),
-            gix::worktree::stack::state::attributes::Source::IdMapping,
-        )
-        .map_err(err)?;
+    let mut everything = repo.pathspec(
+        false,
+        None::<&str>,
+        false,
+        &gix::index::State::new(repo.object_hash()),
+        gix::worktree::stack::state::attributes::Source::IdMapping,
+    )?;
     let mut staged = Vec::new();
     repo.tree_index_status(
         &tree,
@@ -32,8 +29,7 @@ pub fn items(repo: &gix::Repository) -> Result<Vec<Item>, String> {
             }
             Ok(ControlFlow::Continue(()))
         },
-    )
-    .map_err(err)?;
+    )?;
 
     let var = |name| env::var_os(name).map(|v| v.to_string_lossy().into_owned());
     let ident: Vec<_> = [
@@ -53,7 +49,7 @@ pub fn items(repo: &gix::Repository) -> Result<Vec<Item>, String> {
     for (path, mode, id) in &staged {
         // A submodule's entry is a commit in another repo, not a file here.
         if *mode != Mode::COMMIT {
-            items.push(blob_item(path, &repo.find_blob(*id).map_err(err)?.data));
+            items.push(blob_item(path, &repo.find_blob(*id)?.data));
         }
     }
     for (path, ..) in staged {

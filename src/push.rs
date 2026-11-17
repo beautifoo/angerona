@@ -8,6 +8,7 @@ use gix::{
 use std::{
     collections::{BTreeSet, HashSet},
     env,
+    error::Error,
 };
 
 pub struct RefLine {
@@ -130,20 +131,15 @@ pub fn items(
     repo: &gix::Repository,
     refs: &[RefLine],
     held: &[ObjectId],
-) -> Result<Vec<Item>, String> {
+) -> Result<Vec<Item>, Box<dyn Error>> {
     if repo.common_dir().join("info/grafts").exists() || env::var_os("GIT_GRAFT_FILE").is_some() {
         fail("this repo has grafts, which gix ignores", 1);
     }
     let hash = repo.object_hash();
-    let read = |id: ObjectId| {
-        repo.find_object(id)
-            .map(|o| o.detach())
-            .map_err(|e| e.to_string())
-    };
+    let read = |id: ObjectId| repo.find_object(id).map(|o| o.detach());
     // Git takes the commits in .git/shallow to have no parents.
     let shallow: HashSet<_> = repo
-        .shallow_commits()
-        .map_err(|e| e.to_string())?
+        .shallow_commits()?
         .map(|ids| ids.iter().copied().collect())
         .unwrap_or_default();
     let parents = |id: ObjectId, data: &[u8]| -> Vec<_> {
@@ -188,7 +184,7 @@ pub fn items(
     let (mut new, mut roots, mut boundary) = (HashSet::new(), Vec::new(), Vec::new());
     let mut stack = refs
         .iter()
-        .map(|r| ObjectId::from_hex(r.sha.as_bytes()).map_err(|e| e.to_string()))
+        .map(|r| ObjectId::from_hex(r.sha.as_bytes()))
         .collect::<Result<Vec<_>, _>>()?;
     while let Some(id) = stack.pop() {
         if remote.contains(&id) || !new.insert(id) {
@@ -197,22 +193,14 @@ pub fn items(
         let o = read(id)?;
         match o.kind {
             Kind::Tag => {
-                stack.push(
-                    TagRefIter::from_bytes(&o.data, hash)
-                        .target_id()
-                        .map_err(|e| e.to_string())?,
-                );
+                stack.push(TagRefIter::from_bytes(&o.data, hash).target_id()?);
                 items.push(Item {
                     label: Label::Plain(format!("tag {id}")),
                     bytes: o.data,
                 });
             }
             Kind::Commit => {
-                roots.push(
-                    CommitRefIter::from_bytes(&o.data, hash)
-                        .tree_id()
-                        .map_err(|e| e.to_string())?,
-                );
+                roots.push(CommitRefIter::from_bytes(&o.data, hash).tree_id()?);
                 for p in parents(id, &o.data) {
                     if remote.contains(&p) {
                         boundary.push(p);
@@ -269,7 +257,7 @@ pub fn items(
                 continue;
             }
             for e in TreeRefIter::from_bytes(&o.data, hash) {
-                let e = e.map_err(|e| e.to_string())?;
+                let e = e?;
                 let (oid, path) = (e.oid.to_owned(), format!("{dir}{}", e.filename));
                 if e.mode.is_tree() {
                     if listed.insert((oid, path.clone())) {
