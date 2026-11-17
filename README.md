@@ -175,9 +175,10 @@ error, which blocks the call:
 
 A session's calls follow its project's git: where git has `angerona-push`
 switched off, by the `config-work` include above for example, the session is
-a work session. In one, a GitHub call passes only when it names an owner or
-organization and every one it names is an owner of the remote the current
-branch pushes to (git's push remote: `branch.<name>.pushRemote`,
+a work session. A switch-off in the system config doesn't count, as
+check-json doesn't read it. In a work session, a GitHub call passes only when
+it names an owner or organization and every one it names is an owner of the
+remote the current branch pushes to (git's push remote: `branch.<name>.pushRemote`,
 `remote.pushDefault`, the branch's remote, `origin`), and is scanned
 otherwise, a call that names none included. Every other MCP tool passes, so
 browser tools (Playwright and the like) can post anywhere unchecked there.

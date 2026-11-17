@@ -21,5 +21,5 @@ A guard hook is switched off in a repo when git's config there tells git not to 
 _Avoid_: disabled, turned off, bypassed
 
 **Work session**:
-A Claude Code session whose project is a repo where the push hook is switched off; its MCP calls pass unscanned, except a GitHub call that names no owner, or one that isn't the repo's own.
+A Claude Code session whose project is a repo where the push hook is switched off, other than by the system config; its MCP calls pass unscanned, except a GitHub call that names no owner, or one that isn't the repo's own.
 _Avoid_: work mode, work repo

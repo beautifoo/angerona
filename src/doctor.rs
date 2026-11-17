@@ -156,8 +156,8 @@ pub fn run() -> i32 {
         );
         // Switched off on purpose, where the terms belong, or by mistake:
         // either way the guard doesn't run here, and setting the hook again
-        // won't help. check-json reads the same switch, so where it and git
-        // disagree, that is a problem too.
+        // won't help. check-json reads the same switch, less the system
+        // config, so where it and git disagree, that is a problem too.
         problems += &match (switch::read(Path::new("."), &hook, true), git_runs) {
             (Switch::Unclear(why), _) => {
                 format!("{hook}: can't tell whether it is switched off here, {why}\n")
