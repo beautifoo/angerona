@@ -15,9 +15,15 @@ pub struct Matcher {
 
 // Lowercase, but with a final sigma as any other: to_lowercase makes a capital
 // sigma final or not by what follows it, so a term ending in one would miss
-// itself inside a longer word. Both are two bytes, so offsets keep.
+// itself inside a longer word. And so for the letters whose capitals lowercase
+// to something else: ß is SS in capitals, ı is I, and İ lowercases to i with a
+// combining dot.
 fn fold(text: &str) -> String {
-    text.to_lowercase().replace('ς', "σ")
+    text.to_lowercase()
+        .replace('ς', "σ")
+        .replace('ß', "ss")
+        .replace('ı', "i")
+        .replace("i\u{307}", "i")
 }
 
 impl Matcher {
@@ -136,6 +142,20 @@ mod tests {
         assert_eq!(
             m.find("ΝΙΚΟΣAPI, the νικοσ plan, ΑΛΦΑ Σ, ΝΙΚΟΣ"),
             vec![(1, "ΝΙΚΟΣ"), (1, "ΝΙΚΟΣ"), (1, "αλφα σ"), (1, "ΝΙΚΟΣ")]
+        );
+    }
+
+    #[test]
+    fn folds_letters_whose_capitals_lowercase_differently() {
+        let m = Matcher::new(vec!["zorbstraße".into(), "zorbkır".into(), "İzorb".into()]);
+        assert_eq!(
+            m.find("ZORBSTRASSE\nZORBSTRAẞE ZORBKIR\nizorb"),
+            vec![
+                (1, "zorbstraße"),
+                (2, "zorbstraße"),
+                (2, "zorbkır"),
+                (3, "İzorb")
+            ]
         );
     }
 
