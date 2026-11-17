@@ -986,19 +986,21 @@ oldgit() {
 	[ "$status" -eq 2 ]
 }
 
-@test "a switch-off from git -c or GIT_CONFIG_COUNT counts, named as git names it, with a fix that works" {
+@test "git -c values make the switch unclear, and a GIT_CONFIG_COUNT switch-off is named as git names it" {
 	repo
 	hooks
 	chmod 600 "$terms"
-	input='{"tool_input":{"body":"for globex"}}'
-	export GIT_CONFIG_PARAMETERS="'hook.angerona-push.enabled'='false'"
+	git config hook.angerona-push.enabled false
+	printf '[hook "angerona-push"]\n\tenabled = true\n' >"$BATS_TEST_TMPDIR/on.gitconfig"
+	export GIT_CONFIG_PARAMETERS="'include.path'='$BATS_TEST_TMPDIR/on.gitconfig'"
 	run git hook list pre-push
-	has "disabled"
+	lacks "disabled"
 	run "$AG" doctor
-	has "angerona-push is switched off here, by command line:; if this repo must not name the terms, fix: unset GIT_CONFIG_PARAMETERS"
-	CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/clone run "$AG" check-json <<<"$input"
-	[ "$status" -eq 0 ]
+	has "angerona-push: can't tell whether it is switched off here, as git -c values are set; fix: run it without GIT_CONFIG_PARAMETERS"
+	CLAUDE_PROJECT_DIR=$BATS_TEST_TMPDIR/clone run "$AG" check-json <<<'{"tool_input":{"body":"for globex"}}'
+	[ "$status" -eq 2 ]
 	unset GIT_CONFIG_PARAMETERS
+	git config --unset hook.angerona-push.enabled
 	export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=hook.angerona-push.enabled GIT_CONFIG_VALUE_0=false
 	run "$AG" doctor
 	has "angerona-push is switched off here, by command line:; if this repo must not name the terms, fix: unset GIT_CONFIG_COUNT"

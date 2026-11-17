@@ -189,13 +189,8 @@ pub fn run() -> i32 {
             ) => format!(
                 "{hook} is switched off here, by {file}; if this repo must not name the terms, fix: git config unset --file {file} {key}\n"
             ),
-            (
-                Switch::Off {
-                    by: By::Env(var), ..
-                },
-                Some(false),
-            ) => format!(
-                "{hook} is switched off here, by command line:; if this repo must not name the terms, fix: unset {var}\n"
+            (Switch::Off { by: By::Env, .. }, Some(false)) => format!(
+                "{hook} is switched off here, by command line:; if this repo must not name the terms, fix: unset GIT_CONFIG_COUNT\n"
             ),
         };
     }
