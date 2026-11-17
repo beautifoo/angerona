@@ -31,31 +31,43 @@ fn git(args: &[&str]) -> String {
 // Claude Code runs check-json; prints each problem with the command that
 // fixes it.
 pub fn run() -> i32 {
-    let (mut notes, mut problems, mut old) = (String::new(), String::new(), false);
-    // Fold a "..", so the fix reads the same however the binary was run.
-    let me = env::current_exe().map_or("angerona".into(), |p| {
-        repo::fold_dotdot(&p).display().to_string()
-    });
-    let home = env::var("HOME").ok();
+    let mut problems = list_problem();
+    let mut notes = String::new();
+    // A git that can't run the hooks would make their fixes mislead.
+    if check_gits(&mut problems, &mut notes) {
+        problems += &hook_problems();
+    }
+    problems += &claude_problem();
 
+    if !notes.is_empty() {
+        print!("angerona: note: {notes}");
+    }
+    if problems.is_empty() {
+        println!("angerona: the guard is in place");
+        0
+    } else {
+        print!("angerona: {problems}");
+        1
+    }
+}
+
+fn list_problem() -> String {
     let terms = list::path();
     let t = terms.display();
     match list::load() {
-        Ok(_) => {
-            if fs::metadata(&terms).is_ok_and(|m| m.permissions().mode() & 0o044 != 0) {
-                problems += &format!("{t} is readable by others; fix: chmod 600 {t}\n");
-            }
+        Ok(_) if fs::metadata(&terms).is_ok_and(|m| m.permissions().mode() & 0o044 != 0) => {
+            format!("{t} is readable by others; fix: chmod 600 {t}\n")
         }
-        Err(e) => {
-            problems +=
-                &format!("{e}; write it (see README.md) or restore it, then: chmod 600 {t}\n")
-        }
+        Ok(_) => String::new(),
+        Err(e) => format!("{e}; write it (see README.md) or restore it, then: chmod 600 {t}\n"),
     }
+}
 
-    // A git before 2.54, or one that can't run, skips config hooks without a
-    // word. The first git on PATH is the one that runs them here; another is
-    // only noted, since an app may still commit with it. The version is read
-    // from stdout, past any warning, and the error only when there is none.
+// A git before 2.54, or one that can't run, skips config hooks without a
+// word. The first git on PATH is the one that runs them here, so it adds to
+// problems; another adds only to notes, since an app may still commit with
+// it. Says whether the first one runs them.
+fn check_gits(problems: &mut String, notes: &mut String) -> bool {
     let mut gits: Vec<PathBuf> = Vec::new();
     let path = env::var_os("PATH").unwrap_or_default();
     for dir in env::split_paths(&path).filter(|d| !d.as_os_str().is_empty()) {
@@ -64,71 +76,93 @@ pub fn run() -> i32 {
             gits.push(g);
         }
     }
-    let first = gits.first();
-    if first.is_none() {
-        old = true;
-        problems += &format!("no git on PATH; fix: {NEW_GIT}\n");
-    }
-    let (mut good, mut bad) = (None, Vec::new());
+    let Some(first) = gits.first() else {
+        *problems += &format!("no git on PATH; fix: {NEW_GIT}\n");
+        return false;
+    };
+
+    let mut good = None;
+    let mut bad = Vec::new();
     for g in &gits {
-        let out = Command::new(g).arg("--version").output();
-        let line = |b: &[u8]| {
-            String::from_utf8_lossy(b)
-                .lines()
-                .next()
-                .unwrap_or("")
-                .to_string()
-        };
-        let ver = out.map_or(String::new(), |o| match line(&o.stdout) {
-            v if v.is_empty() => line(&o.stderr),
-            v => v,
-        });
-        let n: Vec<&str> = ver.split([' ', '.']).collect();
-        let num = |i: usize| {
-            let digits: String = n
-                .get(i)
-                .map_or("", |s| s)
-                .chars()
-                .take_while(char::is_ascii_digit)
-                .collect();
-            digits.parse::<u32>().unwrap_or(0)
-        };
-        if num(2) > 2 || num(2) == 2 && num(3) >= 54 {
-            good = good.or(Some(g));
-        } else {
-            bad.push((g, ver));
-        }
-    }
-    let dir = |g: &Path| g.parent().unwrap_or(g).display().to_string();
-    for (g, ver) in bad {
-        let fix = match good {
-            None => NEW_GIT.to_string(),
-            Some(good) if Some(g) == first => {
-                format!("put {} before {} on PATH", dir(good), dir(g))
+        let version = version_line(g);
+        if new_enough(&version) {
+            if good.is_none() {
+                good = Some(g);
             }
-            Some(good) => format!("point any app that uses it at {}", good.display()),
-        };
-        let msg = format!(
-            "{} ({ver}) skips config hooks, so a commit or push made with it skips the guard; fix: {fix}\n",
-            g.display()
-        );
-        if Some(g) == first {
-            old = true;
-            problems += &msg;
         } else {
-            notes += &msg;
+            bad.push((g, version));
         }
     }
 
+    let dir = |g: &Path| g.parent().unwrap_or(g).display().to_string();
+    let mut first_runs_hooks = true;
+    for (g, version) in bad {
+        let fix = match good {
+            None => NEW_GIT.to_string(),
+            Some(good) if g == first => format!("put {} before {} on PATH", dir(good), dir(g)),
+            Some(good) => format!("point any app that uses it at {}", good.display()),
+        };
+        let msg = format!(
+            "{} ({version}) skips config hooks, so a commit or push made with it skips the guard; fix: {fix}\n",
+            g.display()
+        );
+        if g == first {
+            first_runs_hooks = false;
+            *problems += &msg;
+        } else {
+            *notes += &msg;
+        }
+    }
+    first_runs_hooks
+}
+
+// The first line git --version prints on stdout, past any warning, or on
+// stderr when there is none; nothing when it can't run.
+fn version_line(git: &Path) -> String {
+    let Ok(out) = Command::new(git).arg("--version").output() else {
+        return String::new();
+    };
+    let first_line = |b: &[u8]| {
+        String::from_utf8_lossy(b)
+            .lines()
+            .next()
+            .unwrap_or("")
+            .to_string()
+    };
+    let line = first_line(&out.stdout);
+    if line.is_empty() {
+        first_line(&out.stderr)
+    } else {
+        line
+    }
+}
+
+// Whether a "git version 2.54.0" line names 2.54 or later.
+fn new_enough(version: &str) -> bool {
+    let parts: Vec<&str> = version.split([' ', '.']).collect();
+    let number = |i: usize| -> u32 {
+        let part = parts.get(i).copied().unwrap_or("");
+        let digits: String = part.chars().take_while(char::is_ascii_digit).collect();
+        digits.parse().unwrap_or(0)
+    };
+    let major = number(2);
+    let minor = number(3);
+    major > 2 || (major == 2 && minor >= 54)
+}
+
+// Whether git runs each guard hook here, and if not, why and how to fix it.
+fn hook_problems() -> String {
+    // Fold a "..", so the fix reads the same however the binary was run.
+    let me = env::current_exe().map_or("angerona".into(), |p| {
+        repo::fold_dotdot(&p).display().to_string()
+    });
+    let home = env::var("HOME").ok();
+    let mut problems = String::new();
     for (name, event, mode) in [
         ("msg", "commit-msg", "check-msg"),
         ("staged", "pre-commit", "check-staged"),
         ("push", "pre-push", "check-push"),
     ] {
-        // This git can't run them, so their fixes would mislead.
-        if old {
-            break;
-        }
         let hook = format!("angerona-{name}");
         // git's own answer: whether it runs the hook here, skips it, or has
         // none set up. git lists a switched-off hook only once it is set up.
@@ -140,17 +174,19 @@ pub fn run() -> i32 {
                 ["disabled" | "event-disabled", n, ..] if n == hook => Some(false),
                 _ => None,
             });
+        // Whether the command it runs is angerona, by a path that exists,
+        // in this mode.
         let cmd = git(&["config", "--get", &format!("hook.{hook}.command")]);
-        let runs = cmd
-            .trim_end_matches('\n')
-            .split_once(' ')
-            .is_some_and(|(path, args)| {
+        let runs = match cmd.trim_end_matches('\n').split_once(' ') {
+            Some((path, args)) => {
                 let path = match (path.strip_prefix('~'), &home) {
                     (Some(rest), Some(home)) => format!("{home}{rest}"),
                     _ => path.to_string(),
                 };
                 executable(Path::new(&path)) && args == mode
-            });
+            }
+            None => false,
+        };
         let missing = format!(
             "no {hook} hook for {event} here; fix:\ngit config set --global hook.{hook}.event {event}\ngit config set --global hook.{hook}.command '{me} {mode}'\n"
         );
@@ -182,72 +218,109 @@ pub fn run() -> i32 {
             ),
         };
     }
+    problems
+}
 
-    // A PreToolUse entry whose matcher covers MCP tools, and whose hook runs
-    // check-json and blocks when it fails, in the user's settings or the
-    // managed ones, and not switched off: by disableAllHooks, or, in the
-    // managed ones, by allowManagedHooksOnly, which drops the user's hooks.
-    if let Some(home) = home.filter(|h| Path::new(h).join(".claude").is_dir()) {
-        let managed = if cfg!(target_os = "macos") {
-            "/Library/Application Support/ClaudeCode/managed-settings.json"
-        } else {
-            "/etc/claude-code/managed-settings.json"
+// A PreToolUse entry whose matcher covers MCP tools, and whose hook runs
+// check-json and blocks when it fails, in the user's settings or the
+// managed ones, and not switched off: by disableAllHooks, or, in the
+// managed ones, by allowManagedHooksOnly, which drops the user's hooks.
+// Only checked where Claude Code is set up.
+fn claude_problem() -> String {
+    let Some(home) = env::var("HOME")
+        .ok()
+        .filter(|h| Path::new(h).join(".claude").is_dir())
+    else {
+        return String::new();
+    };
+    let managed = if cfg!(target_os = "macos") {
+        "/Library/Application Support/ClaudeCode/managed-settings.json"
+    } else {
+        "/etc/claude-code/managed-settings.json"
+    };
+    let user = read_settings(&format!("{home}/.claude/settings.json"));
+    let managed = read_settings(managed);
+    let switched_off = user["disableAllHooks"] == true || managed["disableAllHooks"] == true;
+    let hooked = if managed["allowManagedHooksOnly"] == true {
+        has_guard_hook(&managed)
+    } else {
+        has_guard_hook(&user) || has_guard_hook(&managed)
+    };
+    if switched_off || !hooked {
+        "no Claude Code hook runs angerona check-json on every MCP call; fix: add the hook in README.md to ~/.claude/settings.json\n".into()
+    } else {
+        String::new()
+    }
+}
+
+// A settings file, or null when it is missing or not JSON.
+fn read_settings(path: &str) -> Value {
+    let Ok(bytes) = fs::read(path) else {
+        return Value::Null;
+    };
+    serde_json::from_slice(&bytes).unwrap_or(Value::Null)
+}
+
+fn has_guard_hook(settings: &Value) -> bool {
+    let Some(entries) = settings["hooks"]["PreToolUse"].as_array() else {
+        return false;
+    };
+    for entry in entries {
+        let Some(hooks) = entry["hooks"].as_array() else {
+            continue;
         };
-        let [user, managed] = [format!("{home}/.claude/settings.json"), managed.into()].map(|p| {
-            let read = |p: String| serde_json::from_slice::<Value>(&fs::read(p).ok()?).ok();
-            read(p).unwrap_or(Value::Null)
-        });
-        // A matcher of plain words is a list of exact tool names, which covers
-        // the probe only when one of them is its name; "" and "*" take every
-        // tool; any other is a regex.
-        let covers = |m: &str| match m {
-            "" | "*" => true,
-            _ if m
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || "_-, |".contains(c)) =>
-            {
-                m.split(['|', ',']).any(|n| n.trim() == PROBE)
-            }
-            _ => Regex::new(m).is_ok_and(|re| re.is_match(PROBE)),
-        };
-        let sources = if managed["allowManagedHooksOnly"] == true {
-            vec![&managed]
-        } else {
-            vec![&user, &managed]
-        };
-        let hooked = [&user, &managed]
-            .iter()
-            .all(|s| s["disableAllHooks"] != true)
-            && sources.iter().any(|s| {
-                let entries = s["hooks"]["PreToolUse"].as_array();
-                entries.is_some_and(|es| {
-                    es.iter().any(|e| {
-                        covers(e["matcher"].as_str().unwrap_or(""))
-                            && e["hooks"].as_array().is_some_and(|hs| {
-                                hs.iter().any(|h| {
-                                    let cmd = h["command"].as_str().unwrap_or("");
-                                    let runs = cmd.ends_with("angerona")
-                                        && h["args"] == json!(["check-json"])
-                                        || cmd.contains("angerona check-json");
-                                    runs && h["onFailure"] == "block"
-                                })
-                            })
-                    })
-                })
-            });
-        if !hooked {
-            problems += "no Claude Code hook runs angerona check-json on every MCP call; fix: add the hook in README.md to ~/.claude/settings.json\n";
+        if covers(entry["matcher"].as_str().unwrap_or("")) && hooks.iter().any(runs_check_json) {
+            return true;
         }
     }
+    false
+}
 
-    if !notes.is_empty() {
-        print!("angerona: note: {notes}");
+// Whether a matcher covers the probe. A matcher of plain words is a list of
+// exact tool names, which covers the probe only when one of them is its
+// name; "" and "*" take every tool; any other is a regex.
+fn covers(matcher: &str) -> bool {
+    if matcher.is_empty() || matcher == "*" {
+        return true;
     }
-    if problems.is_empty() {
-        println!("angerona: the guard is in place");
-        0
+    let plain = matcher
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "_-, |".contains(c));
+    if plain {
+        matcher.split(['|', ',']).any(|name| name.trim() == PROBE)
     } else {
-        print!("angerona: {problems}");
-        1
+        Regex::new(matcher).is_ok_and(|re| re.is_match(PROBE))
+    }
+}
+
+fn runs_check_json(hook: &Value) -> bool {
+    let cmd = hook["command"].as_str().unwrap_or("");
+    let runs = (cmd.ends_with("angerona") && hook["args"] == json!(["check-json"]))
+        || cmd.contains("angerona check-json");
+    runs && hook["onFailure"] == "block"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_the_git_version_as_2_54_or_later() {
+        for v in [
+            "git version 2.54.0",
+            "git version 2.56.1",
+            "git version 3.0.0",
+            "git version 2.54.0.windows.1",
+        ] {
+            assert!(new_enough(v), "{v}");
+        }
+        for v in [
+            "git version 2.53.0",
+            "git version 2.39.5 (Apple Git-154)",
+            "warning: x",
+            "",
+        ] {
+            assert!(!new_enough(v), "{v}");
+        }
     }
 }
