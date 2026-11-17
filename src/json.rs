@@ -88,15 +88,16 @@ pub fn work_owners(dir: &Path) -> Option<Vec<String>> {
         .or_else(|| setting("remote.pushDefault"))
         .or_else(|| of_branch("remote"))
         .unwrap_or_else(|| "origin".into());
-    Some(
-        repo.find_remote(remote.as_str())
-            .map(|r| {
-                r.urls(Direction::Push)
-                    .filter_map(|u| owner_of(&u.to_bstring().to_str_lossy()))
-                    .collect()
-            })
-            .unwrap_or_default(),
-    )
+    let Ok(remote) = repo.find_remote(remote.as_str()) else {
+        return Some(Vec::new());
+    };
+    let mut owners = Vec::new();
+    for url in remote.urls(Direction::Push) {
+        if let Some(owner) = owner_of(&url.to_bstring().to_str_lossy()) {
+            owners.push(owner);
+        }
+    }
+    Some(owners)
 }
 
 // The owner a GitHub URL names, lowercased. A GitHub Enterprise host counts
@@ -117,10 +118,13 @@ pub fn owner_of(url: &str) -> Option<String> {
 // any depth, and each one it names is one of the repo's. Every other tool
 // passes.
 pub fn passes(tool_name: &str, input: &Value, owners: &[String]) -> bool {
-    let server = tool_name
-        .strip_prefix("mcp__")
-        .and_then(|rest| rest.rsplit_once("__"))
-        .map_or("", |(server, _)| server);
+    // An MCP tool is named mcp__<server>__<tool>.
+    let Some(rest) = tool_name.strip_prefix("mcp__") else {
+        return true;
+    };
+    let Some((server, _)) = rest.rsplit_once("__") else {
+        return true;
+    };
     if !server.to_lowercase().contains("github") {
         return true;
     }
@@ -143,7 +147,11 @@ fn owners_named<'a>(v: &'a Value, out: &mut Vec<&'a Value>) {
                 owners_named(x, out);
             }
         }
-        Value::Array(a) => a.iter().for_each(|x| owners_named(x, out)),
+        Value::Array(a) => {
+            for x in a {
+                owners_named(x, out);
+            }
+        }
         _ => {}
     }
 }
