@@ -1,4 +1,4 @@
-use crate::scan::{Item, Label, blob_item, fail};
+use crate::scan::{Item, Label, blob_item, fail, name_item};
 use gix::{
     ObjectId,
     objs::{CommitRefIter, Kind, TagRefIter, TreeRefIter},
@@ -171,14 +171,11 @@ pub fn items(
         }
     }
 
-    let mut items: Vec<_> = refs
-        .iter()
-        .flat_map(|r| [&r.local_ref, &r.remote_ref])
-        .map(|name| Item {
-            label: Label::Name("ref", name.clone()),
-            bytes: name.clone().into_bytes(),
-        })
-        .collect();
+    let mut items = Vec::new();
+    for r in refs {
+        items.push(name_item("ref", r.local_ref.clone()));
+        items.push(name_item("ref", r.remote_ref.clone()));
+    }
     // The new commits, from the tips, peeling tags. The held commits met on the
     // way are the boundary, and the trees or blobs the tips peel to are roots.
     let (mut new, mut roots, mut boundary) = (HashSet::new(), Vec::new(), Vec::new());
@@ -270,10 +267,9 @@ pub fn items(
             }
         }
     }
-    items.extend(names.into_iter().map(|path| Item {
-        bytes: path.clone().into_bytes(),
-        label: Label::Name("file", path),
-    }));
+    for path in names {
+        items.push(name_item("file", path));
+    }
     Ok(items)
 }
 

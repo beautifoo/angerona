@@ -1,4 +1,4 @@
-use crate::scan::{Item, Label, blob_item};
+use crate::scan::{Item, Label, blob_item, name_item};
 use gix::index::entry::Mode;
 use std::{env, error::Error, ops::ControlFlow};
 
@@ -53,10 +53,7 @@ pub fn items(repo: &gix::Repository) -> Result<Vec<Item>, Box<dyn Error>> {
         }
     }
     for (path, ..) in staged {
-        items.push(Item {
-            bytes: path.clone().into_bytes(),
-            label: Label::Name("file", path),
-        });
+        items.push(name_item("file", path));
     }
     Ok(items)
 }

@@ -57,6 +57,15 @@ pub fn blob_item(path: &str, bytes: &[u8]) -> Item {
     }
 }
 
+// A name, such as a file's, a ref's or a key's, read as itself.
+pub fn name_item(what: &'static str, name: String) -> Item {
+    let bytes = name.clone().into_bytes();
+    Item {
+        label: Label::Name(what, name),
+        bytes,
+    }
+}
+
 // Each hit as "<where>: <term>", once, in item order then by position.
 pub fn hits(m: &Matcher, items: &[Item]) -> Vec<String> {
     let (mut out, mut seen) = (Vec::new(), HashSet::new());

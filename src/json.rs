@@ -1,6 +1,6 @@
 use crate::{
     repo,
-    scan::{Item, Label, blob_item},
+    scan::{Item, Label, blob_item, name_item},
     switch::{self, Switch},
 };
 use gix::{bstr::ByteSlice, remote::Direction};
@@ -13,10 +13,9 @@ use std::{collections::BTreeSet, fs, path::Path};
 pub fn items(input: &Value, cwd: &Path) -> Vec<Item> {
     let (mut items, mut keys) = (Vec::new(), BTreeSet::new());
     walk(input, None, cwd, &mut items, &mut keys);
-    items.extend(keys.into_iter().map(|k| Item {
-        bytes: k.clone().into_bytes(),
-        label: Label::Name("key", k),
-    }));
+    for key in keys {
+        items.push(name_item("key", key));
+    }
     items
 }
 
