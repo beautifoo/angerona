@@ -1,4 +1,4 @@
-use crate::scan::{Item, Label, blob_item, fail, name_item};
+use crate::scan::{Item, Label, blob_item, name_item};
 use gix::{
     ObjectId,
     objs::{CommitRefIter, Kind, TagRefIter, TreeRefIter},
@@ -7,7 +7,6 @@ use gix::{
 };
 use std::{
     collections::{BTreeSet, HashSet},
-    env,
     error::Error,
 };
 
@@ -126,15 +125,13 @@ pub fn held(repo: &gix::Repository, remote: &str, url: Option<&str>) -> Vec<Obje
 // What the push sends, as `git rev-list --objects <tips> ^<held>` lists it,
 // read as stored: the ref names; each tag and commit; each file version the
 // remote lacks; then every name in each new root tree, the remote's files and
-// submodules included, since a rename sends only a tree.
+// submodules included, since a rename sends only a tree. gix ignores grafts,
+// so a repo with them must be refused before this.
 pub fn items(
     repo: &gix::Repository,
     refs: &[RefLine],
     held: &[ObjectId],
 ) -> Result<Vec<Item>, Box<dyn Error>> {
-    if repo.common_dir().join("info/grafts").exists() || env::var_os("GIT_GRAFT_FILE").is_some() {
-        fail("this repo has grafts, which gix ignores", 1);
-    }
     let hash = repo.object_hash();
     let read = |id: ObjectId| repo.find_object(id).map(|o| o.detach());
     // Git takes the commits in .git/shallow to have no parents.

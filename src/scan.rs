@@ -1,5 +1,5 @@
-use crate::list::{self, Matcher};
-use std::{collections::HashSet, process::exit};
+use crate::list::Matcher;
+use std::collections::HashSet;
 
 // What an item is, which says where a hit in it is.
 pub enum Label {
@@ -84,29 +84,6 @@ pub fn hits(m: &Matcher, items: &[Item]) -> Vec<String> {
         }
     }
     out
-}
-
-// Loads the list and matches the items against it: exits 0 when none names a
-// term, refuse_code after printing each hit when one does.
-pub fn finish(items: &[Item], refuse_code: i32) -> ! {
-    let m = list::load().unwrap_or_else(|why| {
-        eprintln!("angerona: {why}");
-        exit(refuse_code)
-    });
-    let found = hits(&m, items);
-    if found.is_empty() {
-        exit(0);
-    }
-    eprintln!(
-        "angerona: listed term(s) found; keep them out of what you publish:\n{}",
-        found.join("\n")
-    );
-    exit(refuse_code)
-}
-
-pub fn fail(reason: &str, code: i32) -> ! {
-    eprintln!("angerona: {reason}, refusing to pass anything");
-    exit(code)
 }
 
 #[cfg(test)]
