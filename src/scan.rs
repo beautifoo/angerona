@@ -32,13 +32,20 @@ pub fn blob_item(path: &str, bytes: &[u8]) -> Item {
             bytes: bytes.to_vec(),
         };
     }
-    let utf16 = match bytes {
-        [0xff, 0xfe, rest @ ..] => Some((rest, u16::from_le_bytes as fn(_) -> _)),
-        [0xfe, 0xff, rest @ ..] => Some((rest, u16::from_be_bytes as fn(_) -> _)),
+    let utf16: Option<Vec<u16>> = match bytes {
+        [0xff, 0xfe, rest @ ..] => Some(
+            rest.chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect(),
+        ),
+        [0xfe, 0xff, rest @ ..] => Some(
+            rest.chunks_exact(2)
+                .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                .collect(),
+        ),
         _ => None,
     };
-    if let Some((rest, unit)) = utf16 {
-        let units: Vec<_> = rest.chunks_exact(2).map(|c| unit([c[0], c[1]])).collect();
+    if let Some(units) = utf16 {
         return Item {
             label: Label::Blob(path.into()),
             bytes: String::from_utf16_lossy(&units).into_bytes(),
@@ -68,7 +75,8 @@ pub fn name_item(what: &'static str, name: String) -> Item {
 
 // Each hit as "<where>: <term>", once, in item order then by position.
 pub fn hits(m: &Matcher, items: &[Item]) -> Vec<String> {
-    let (mut out, mut seen) = (Vec::new(), HashSet::new());
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
     for item in items {
         for (line, term) in m.find(&String::from_utf8_lossy(&item.bytes)) {
             let place = match &item.label {

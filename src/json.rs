@@ -11,7 +11,8 @@ use std::{collections::BTreeSet, fs, path::Path};
 // joined by ".", or "input" when the input is a string; the file a string
 // names, as one to upload; then each key.
 pub fn items(input: &Value, cwd: &Path) -> Vec<Item> {
-    let (mut items, mut keys) = (Vec::new(), BTreeSet::new());
+    let mut items = Vec::new();
+    let mut keys = BTreeSet::new();
     walk(input, None, cwd, &mut items, &mut keys);
     for key in keys {
         items.push(name_item("key", key));
@@ -26,31 +27,35 @@ fn walk(
     items: &mut Vec<Item>,
     keys: &mut BTreeSet<String>,
 ) {
-    let child = |k: &str| Some(path.as_ref().map_or(k.into(), |p| format!("{p}.{k}")));
+    let child = |k: &str| match &path {
+        Some(p) => format!("{p}.{k}"),
+        None => k.to_string(),
+    };
     match v {
         Value::String(s) => {
-            // A directory, or a path that doesn't exist yet, names nothing to read.
-            let file = cwd.join(s);
-            let named = (!s.contains('\n') && s.len() <= 4096 && file.is_file())
-                .then(|| fs::read(&file).ok())
-                .flatten();
             items.push(Item {
                 label: Label::Blob(path.unwrap_or_else(|| "input".into())),
                 bytes: s.clone().into_bytes(),
             });
-            if let Some(bytes) = named {
+            // A directory, or a path that doesn't exist yet, names nothing to read.
+            let file = cwd.join(s);
+            if !s.contains('\n')
+                && s.len() <= 4096
+                && file.is_file()
+                && let Ok(bytes) = fs::read(&file)
+            {
                 items.push(blob_item(s, &bytes));
             }
         }
         Value::Array(a) => {
             for (i, x) in a.iter().enumerate() {
-                walk(x, child(&i.to_string()), cwd, items, keys);
+                walk(x, Some(child(&i.to_string())), cwd, items, keys);
             }
         }
         Value::Object(m) => {
             for (k, x) in m {
                 keys.insert(k.clone());
-                walk(x, child(k), cwd, items, keys);
+                walk(x, Some(child(k)), cwd, items, keys);
             }
         }
         _ => {}

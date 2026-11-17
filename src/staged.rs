@@ -31,14 +31,13 @@ pub fn items(repo: &gix::Repository) -> Result<Vec<Item>, Box<dyn Error>> {
         },
     )?;
 
-    let var = |name| env::var_os(name).map(|v| v.to_string_lossy().into_owned());
-    let ident: Vec<_> = [
-        var("GIT_AUTHOR_NAME"),
-        var("GIT_AUTHOR_EMAIL").map(|e| format!("<{e}>")),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
+    let mut ident = Vec::new();
+    if let Some(name) = env::var_os("GIT_AUTHOR_NAME") {
+        ident.push(name.to_string_lossy().into_owned());
+    }
+    if let Some(email) = env::var_os("GIT_AUTHOR_EMAIL") {
+        ident.push(format!("<{}>", email.to_string_lossy()));
+    }
     let mut items = Vec::new();
     if !ident.is_empty() {
         items.push(Item {

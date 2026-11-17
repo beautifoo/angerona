@@ -44,15 +44,15 @@ impl Matcher {
             .map(|m| (m.start(), m.pattern().as_usize()))
             .collect();
         found.sort();
-        let (mut line, mut at) = (1, 0);
-        found
-            .into_iter()
-            .map(|(start, term)| {
-                line += text[at..start].matches('\n').count();
-                at = start;
-                (line, self.terms[term].as_str())
-            })
-            .collect()
+        let mut hits = Vec::new();
+        let mut line = 1;
+        let mut counted_to = 0;
+        for (start, term) in found {
+            line += text[counted_to..start].matches('\n').count();
+            counted_to = start;
+            hits.push((line, self.terms[term].as_str()));
+        }
+        hits
     }
 }
 
@@ -66,12 +66,11 @@ pub fn path() -> PathBuf {
             .map(PathBuf::from)
             .filter(|p| p.is_absolute())
     };
-    let base = absolute("XDG_CONFIG_HOME").unwrap_or_else(|| {
-        absolute("HOME")
-            .unwrap_or_else(|| "/".into())
-            .join(".config")
-    });
-    base.join("angerona/terms.txt")
+    if let Some(config) = absolute("XDG_CONFIG_HOME") {
+        return config.join("angerona/terms.txt");
+    }
+    let home = absolute("HOME").unwrap_or_else(|| PathBuf::from("/"));
+    home.join(".config/angerona/terms.txt")
 }
 
 // One term per line, as written but for the whitespace around it. A line that
