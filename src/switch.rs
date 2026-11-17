@@ -18,8 +18,8 @@ use std::{
 
 pub enum Switch {
     On,
-    // The key that switches the hook off, and where it is set.
-    Off { key: String, by: By },
+    // Switched off by the hook's own hook.<name>.enabled, set where By says.
+    Off(By),
     // Why git's answer can't be read here, with the fix where there is a safe one.
     Unclear(String),
 }
@@ -42,7 +42,7 @@ impl fmt::Display for By {
     }
 }
 
-pub fn git_bool(value: &str) -> Option<bool> {
+fn git_bool(value: &str) -> Option<bool> {
     gix::config::Boolean::try_from(value).ok().map(bool::from)
 }
 
@@ -82,18 +82,12 @@ pub fn read(dir: &Path, hook: &str, may_run_git: bool) -> Switch {
         Err(e) => return Switch::Unclear(format!("as its directory can't be read ({e})")),
     };
     let repo = match repo::open_at(&start, sources) {
-        Ok(repo) => Some(repo),
-        Err(e)
-            if e.downcast_any_ref::<upwards::Error>().is_some_and(|e| {
-                matches!(
-                    e,
-                    upwards::Error::NoGitRepository { .. }
-                        | upwards::Error::NoGitRepositoryWithinCeiling { .. }
-                        | upwards::Error::NoGitRepositoryWithinFs { .. }
-                )
-            }) =>
-        {
-            None
+        Ok(repo) => repo,
+        Err(e) if is_no_repo(&e) => {
+            return match globals(may_run_git) {
+                Some(config) => rule(&config, &[], hook),
+                None => Switch::On,
+            };
         }
         // A repo git reads but gix can't, such as one with SHA-256 objects.
         Err(e) => {
@@ -103,42 +97,47 @@ pub fn read(dir: &Path, hook: &str, may_run_git: bool) -> Switch {
             ));
         }
     };
+    if repo.git_dir_trust() != gix::sec::Trust::Full {
+        return Switch::Unclear("as git doesn't trust this repo".into());
+    }
+
+    let mut config = repo.config_snapshot().plumbing().clone();
+    let home = env::var_os("HOME").map(PathBuf::from);
+    let branch = repo.head_name().ok().flatten();
+    let includes = includes::Options::follow(
+        interpolate::Context {
+            home_dir: home.as_deref(),
+            home_for_user: Some(interpolate::home_for_user),
+            ..Default::default()
+        },
+        conditional::Context {
+            git_dir: Some(repo.git_dir()),
+            branch_name: branch.as_ref().map(AsRef::as_ref),
+        },
+    );
+    let options = init::Options {
+        includes,
+        ..Default::default()
+    };
+    if let Err(e) = config.resolve_includes(options) {
+        return Switch::Unclear(format!("as its config's includes can't be read ({e})"));
+    }
     // git names the repo's own config from where it started, or, below a
     // worktree's top, from the top.
-    let (config, from) = match repo {
-        Some(repo) if repo.git_dir_trust() != gix::sec::Trust::Full => {
-            return Switch::Unclear("as git doesn't trust this repo".into());
-        }
-        Some(repo) => {
-            let mut config = repo.config_snapshot().plumbing().clone();
-            let home = env::var_os("HOME").map(PathBuf::from);
-            let branch = repo.head_name().ok().flatten();
-            let includes = includes::Options::follow(
-                interpolate::Context {
-                    home_dir: home.as_deref(),
-                    home_for_user: Some(interpolate::home_for_user),
-                    ..Default::default()
-                },
-                conditional::Context {
-                    git_dir: Some(repo.git_dir()),
-                    branch_name: branch.as_ref().map(AsRef::as_ref),
-                },
-            );
-            let options = init::Options {
-                includes,
-                ..Default::default()
-            };
-            if let Err(e) = config.resolve_includes(options) {
-                return Switch::Unclear(format!("as its config's includes can't be read ({e})"));
-            }
-            (config, [Some(start), repo.workdir().map(Path::to_path_buf)])
-        }
-        None => match globals(may_run_git) {
-            Some(config) => (config, [None, None]),
-            None => return Switch::On,
-        },
-    };
+    let mut from = vec![start];
+    from.extend(repo.workdir().map(Path::to_path_buf));
     rule(&config, &from, hook)
+}
+
+fn is_no_repo(e: &gix::Error) -> bool {
+    matches!(
+        e.downcast_any_ref::<upwards::Error>(),
+        Some(
+            upwards::Error::NoGitRepository { .. }
+                | upwards::Error::NoGitRepositoryWithinCeiling { .. }
+                | upwards::Error::NoGitRepositoryWithinFs { .. }
+        )
+    )
 }
 
 // The config git reads outside a repo: the global files and GIT_CONFIG_COUNT,
@@ -157,9 +156,7 @@ fn globals(may_run_git: bool) -> Option<File> {
         });
         let home = env::var_os("HOME").map(PathBuf::from);
         let options = init::Options {
-            includes: gix::config::file::includes::Options::follow_without_conditional(
-                home.as_deref(),
-            ),
+            includes: includes::Options::follow_without_conditional(home.as_deref()),
             ..Default::default()
         };
         File::from_paths_metadata(global, options)
@@ -175,61 +172,66 @@ fn globals(may_run_git: bool) -> Option<File> {
 // The repo's own config file as git names it: below GIT_DIR as given, while
 // that is set; else from the first of from that holds it; else in full, with
 // any ".." folded, as a linked worktree's shared config.
-fn named(file: &Path, from: &[Option<PathBuf>]) -> String {
+fn named(file: &Path, from: &[PathBuf]) -> String {
     let file = repo::fold_dotdot(file);
-    let given = env::var_os("GIT_DIR").map(PathBuf::from);
-    given
-        .and_then(|dir| {
-            // gix and the cwd may spell the same directory by different links.
-            let real = fs::canonicalize(&file).ok()?;
-            let rest = real.strip_prefix(fs::canonicalize(&dir).ok()?).ok()?;
-            Some(dir.join(rest))
-        })
-        .or_else(|| {
-            from.iter()
-                .flatten()
-                .find_map(|base| file.strip_prefix(base).ok().map(Path::to_path_buf))
-        })
-        .unwrap_or(file)
-        .display()
-        .to_string()
+    // gix and the cwd may spell the same directory by different links.
+    if let Some(dir) = env::var_os("GIT_DIR").map(PathBuf::from)
+        && let Ok(real) = fs::canonicalize(&file)
+        && let Ok(real_dir) = fs::canonicalize(&dir)
+        && let Ok(rest) = real.strip_prefix(&real_dir)
+    {
+        return dir.join(rest).display().to_string();
+    }
+    for base in from {
+        if let Ok(rest) = file.strip_prefix(base) {
+            return rest.display().to_string();
+        }
+    }
+    file.display().to_string()
 }
 
-fn rule(config: &File, from: &[Option<PathBuf>], hook: &str) -> Switch {
-    let by = |meta: &Metadata| match (&meta.path, meta.source) {
+fn set_by(meta: &Metadata, from: &[PathBuf]) -> By {
+    match (&meta.path, meta.source) {
         (Some(p), Source::Local) => By::Repo("local", named(p, from)),
         (Some(p), Source::Worktree) => By::Repo("worktree", named(p, from)),
         (Some(p), _) => By::File(p.display().to_string()),
         (None, _) => By::Env,
+    }
+}
+
+// The first key in a section's text with no "=", which gix reads as an empty
+// value and git fails on: only the parsed events tell the two apart.
+fn key_without_value(text: &[u8]) -> Option<String> {
+    let Ok(parsed) = Events::from_bytes(text, None) else {
+        return None;
     };
-    let mut by_hook = None;
+    let events: Vec<_> = parsed
+        .iter()
+        .filter(|e| !matches!(e, EventRef::Whitespace(_)))
+        .collect();
+    for (i, event) in events.iter().enumerate() {
+        if let EventRef::SectionValueName(key) = event
+            && !matches!(events.get(i + 1), Some(EventRef::KeyValueSeparator))
+        {
+            return Some(key.to_string());
+        }
+    }
+    None
+}
+
+fn rule(config: &File, from: &[PathBuf], hook: &str) -> Switch {
+    let mut enabled = None;
     for section in config.sections_by_name("hook").into_iter().flatten() {
         let Some(name) = section.header().subsection_name() else {
             continue;
         };
-        // git fails on a hook's key with no "=", which gix reads as an empty
-        // value: only its events tell the two apart.
-        let text = section.to_bstring();
-        let events = Events::from_bytes(&text, None);
-        let mut events = events
-            .iter()
-            .flat_map(|e| e.iter())
-            .filter(|e| !matches!(e, EventRef::Whitespace(_)));
-        while let Some(e) = events.next() {
-            if let EventRef::SectionValueName(key) = e
-                && !matches!(events.next(), Some(EventRef::KeyValueSeparator))
-            {
-                return Switch::Unclear(format!(
-                    "as {} has hook.{name}.{key} with no value, which git can't read; fix: give it one",
-                    by(section.meta())
-                ));
-            }
+        // git fails on any hook's key with no value, not only this hook's.
+        if let Some(key) = key_without_value(&section.to_bstring()) {
+            return Switch::Unclear(format!(
+                "as {} has hook.{name}.{key} with no value, which git can't read; fix: give it one",
+                set_by(section.meta(), from)
+            ));
         }
-        let last = section
-            .values("enabled")
-            .iter()
-            .rev()
-            .find_map(|v| git_bool(&v.to_str_lossy()));
         // In the old [hook.Name] syntax git lowercases the name.
         let name = if section.header().is_legacy() {
             name.to_ascii_lowercase()
@@ -241,16 +243,18 @@ fn rule(config: &File, from: &[Option<PathBuf>], hook: &str) -> Switch {
         if name != hook.as_bytes() {
             continue;
         }
+        let last = section
+            .values("enabled")
+            .iter()
+            .rev()
+            .find_map(|v| git_bool(&v.to_str_lossy()));
         if let Some(on) = last {
-            by_hook = Some((on, section.meta()));
+            enabled = Some((on, section.meta()));
         }
     }
-    let Some((false, meta)) = by_hook else {
-        return Switch::On;
-    };
-    Switch::Off {
-        key: format!("hook.{hook}.enabled"),
-        by: by(meta),
+    match enabled {
+        Some((false, meta)) => Switch::Off(set_by(meta, from)),
+        _ => Switch::On,
     }
 }
 

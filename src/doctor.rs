@@ -168,28 +168,16 @@ pub fn run() -> i32 {
             (Switch::On, Some(false)) => format!(
                 "{hook}: git skips it here, but angerona reads it as on, from config it can't read; find it with: git config --show-origin --get-regexp '^hook\\.'\n"
             ),
-            (Switch::Off { by, .. }, Some(true)) => format!(
+            (Switch::Off(by), Some(true)) => format!(
                 "{hook}: git runs it here, but angerona reads it as switched off, by {by}\n"
             ),
-            (
-                Switch::Off {
-                    key,
-                    by: By::Repo(scope, file),
-                },
-                Some(false),
-            ) => format!(
-                "{hook} is switched off by this repo's own config, {file}, which an agent can write; to switch it off on purpose, use an include in your global config (see README.md); if you didn't, fix: git config unset --{scope} {key}\n"
+            (Switch::Off(By::Repo(scope, file)), Some(false)) => format!(
+                "{hook} is switched off by this repo's own config, {file}, which an agent can write; to switch it off on purpose, use an include in your global config (see README.md); if you didn't, fix: git config unset --{scope} hook.{hook}.enabled\n"
             ),
-            (
-                Switch::Off {
-                    key,
-                    by: By::File(file),
-                },
-                Some(false),
-            ) => format!(
-                "{hook} is switched off here, by {file}; if this repo must not name the terms, fix: git config unset --file {file} {key}\n"
+            (Switch::Off(By::File(file)), Some(false)) => format!(
+                "{hook} is switched off here, by {file}; if this repo must not name the terms, fix: git config unset --file {file} hook.{hook}.enabled\n"
             ),
-            (Switch::Off { by: By::Env, .. }, Some(false)) => format!(
+            (Switch::Off(By::Env), Some(false)) => format!(
                 "{hook} is switched off here, by command line:; if this repo must not name the terms, fix: unset GIT_CONFIG_COUNT\n"
             ),
         };

@@ -61,7 +61,7 @@ fn walk(
 // that may name the terms, and this returns the GitHub owners of the remote the
 // current branch pushes to. Outside a repo, there is none: no work session.
 pub fn work_owners(dir: &Path) -> Option<Vec<String>> {
-    let Switch::Off { .. } = switch::read(dir, "angerona-push", false) else {
+    let Switch::Off(_) = switch::read(dir, "angerona-push", false) else {
         return None;
     };
     let repo = repo::open(dir).ok()?;
