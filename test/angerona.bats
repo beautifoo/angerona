@@ -662,6 +662,23 @@ good_setup() {
 	has "user.signingkey"
 }
 
+@test "doctor flags a signing key email in an included file" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	git config --file "$BATS_TEST_TMPDIR/work.gitconfig" user.signingkey me@real.example
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "user.signingkey in $BATS_TEST_TMPDIR/work.gitconfig"
+}
+
+@test "doctor takes yes for useConfigOnly" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	git config --global user.useConfigOnly yes
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	[ "$status" -eq 0 ]
+}
+
 @test "doctor flags a missing hook" {
 	fake_gh 'printf "%s\n" Me@Personal.Example'
 	good_setup

@@ -22,6 +22,22 @@ fn git_global(key: &str) -> Option<String> {
     (out.status.success() && !value.is_empty()).then_some(value)
 }
 
+// A global boolean as git reads it, with yes, on or 1 for true, and set in an
+// included file as well; false when unset.
+fn git_global_true(key: &str) -> bool {
+    Command::new("git")
+        .args([
+            "config",
+            "--global",
+            "--includes",
+            "--type=bool",
+            "--get",
+            key,
+        ])
+        .output()
+        .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "true")
+}
+
 // The addresses the emails file holds, lowercased and sorted; None when the
 // file is missing.
 fn saved_emails() -> Option<Vec<String>> {
@@ -44,7 +60,7 @@ pub fn run() -> i32 {
     let mut notes = String::new();
     check_gits(&mut problems, &mut notes);
 
-    if git_global("user.useConfigOnly").as_deref() != Some("true") {
+    if !git_global_true("user.useConfigOnly") {
         problems += "user.useConfigOnly is not true, so git guesses an email from your host name; fix: git config set --global user.useConfigOnly true\n";
     }
 
@@ -92,8 +108,14 @@ pub fn run() -> i32 {
         );
     }
 
-    if git_global("user.signingkey").is_some_and(|k| k.contains('@')) {
-        problems += "user.signingkey looks like an email, which signs commits with it as the key name; fix: set it to the key fingerprint\n";
+    // A per-host includeIf file is where a signing key usually lives.
+    let machine = details::machine();
+    for (key, file) in details::config_values(&machine.config_files, "user.signingkey") {
+        if key.contains('@') {
+            problems += &format!(
+                "user.signingkey in {file} looks like an email, which signs commits with it as the key name; fix: set it to the key fingerprint\n"
+            );
+        }
     }
 
     let saved = saved_emails();
@@ -118,7 +140,7 @@ pub fn run() -> i32 {
         }
     }
 
-    let details = details::discover(&details::machine());
+    let details = details::discover(&machine);
     for line in &details.weak {
         notes += line;
         if cfg!(target_os = "macos") && line.starts_with("host ") {

@@ -175,16 +175,16 @@ fn expand_tilde(p: &str) -> PathBuf {
     }
 }
 
-// Every user.email in the files and in everything they include, whatever the
-// includeIf condition: any of them may be one you commit with. The visited
-// set ends include loops.
-pub fn config_emails(files: &[PathBuf]) -> Vec<(String, String)> {
+// Every value of the key in the files and in everything they include, with
+// the file it is in, whatever the includeIf condition: a user.email set under
+// any of them may be one you commit with. The visited set ends include loops.
+pub fn config_values(files: &[PathBuf], key: &str) -> Vec<(String, String)> {
     let mut found = Vec::new();
     let mut visited = HashSet::new();
     let mut todo: Vec<PathBuf> = files.iter().rev().cloned().collect();
     while let Some(path) = todo.pop() {
-        let key = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
-        if !visited.insert(key) {
+        let real = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        if !visited.insert(real) {
             continue;
         }
         let Ok(config) =
@@ -192,8 +192,8 @@ pub fn config_emails(files: &[PathBuf]) -> Vec<(String, String)> {
         else {
             continue;
         };
-        for email in config.strings("user.email").unwrap_or_default() {
-            found.push((email.to_string(), path.display().to_string()));
+        for value in config.strings(key).unwrap_or_default() {
+            found.push((value.to_string(), path.display().to_string()));
         }
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
         let mut includes = Vec::new();
@@ -217,7 +217,7 @@ pub fn discover(m: &Machine) -> Details {
         .iter()
         .map(|e| (e.clone(), "environment".to_string()))
         .collect();
-    found.extend(config_emails(&m.config_files));
+    found.extend(config_values(&m.config_files, "user.email"));
     if let Some(text) = m
         .emails_file
         .as_ref()
@@ -352,7 +352,7 @@ mod tests {
         let b = dir.join("b");
         fs::write(&a, "[user]\n\temail = a@x.example\n[include]\n\tpath = b\n").unwrap();
         fs::write(&b, "[user]\n\temail = b@x.example\n[include]\n\tpath = a\n").unwrap();
-        let found = config_emails(&[a]);
+        let found = config_values(&[a], "user.email");
         fs::remove_dir_all(&dir).unwrap();
         assert_eq!(found.len(), 2);
     }
