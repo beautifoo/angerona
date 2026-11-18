@@ -554,3 +554,24 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	run "$AG" scan
 	[ "$(git rev-parse --all; git status --porcelain)" = "$before" ]
 }
+
+@test "scan reads history only a detached HEAD reaches" {
+	repo
+	commit a.txt /Users/jdoe/x
+	git rm -q a.txt
+	git commit -qm remove
+	git checkout -q --detach
+	git branch -D main -q
+	run "$AG" scan
+	[ "$status" -eq 1 ]
+	has /Users/jdoe
+}
+
+@test "scan reports any tagger email" {
+	repo
+	commit a.txt hello
+	GIT_COMMITTER_EMAIL=bob@corp.example git tag -a v1 -m release
+	run "$AG" scan
+	[ "$status" -eq 1 ]
+	has bob@corp.example
+}

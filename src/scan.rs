@@ -52,6 +52,10 @@ fn findings(
             stack.push(id.to_owned());
         }
     }
+    // HEAD is no ref: a detached one reaches commits no branch does.
+    if !repo.head()?.is_unborn() {
+        stack.push(repo.head_id()?.detach());
+    }
     let mut seen = HashSet::new();
     let mut commits = 0;
     let mut last = Instant::now();
