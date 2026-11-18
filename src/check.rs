@@ -3,7 +3,7 @@ use crate::{
     identity::{self, foreign},
     matcher::{Hit, Kind as HitKind, Matcher},
     push::{Outgoing, RefLine, read},
-    text::{Item, Label, blob_item},
+    text::{Item, Label, blob_item, name_item},
 };
 use gix::{
     ObjectId,
@@ -138,19 +138,35 @@ pub fn tag_findings(
     Ok(found)
 }
 
-// A blob or tree, read whole; any other object gives nothing.
+// A blob, read whole, or a tree: every file under it, by name and content,
+// since the push sends them all. A gitlink is a commit in another repo, so it
+// is skipped. Any other object gives nothing.
 fn blob_findings(
     repo: &gix::Repository,
     id: ObjectId,
     m: &Matcher,
 ) -> Result<Vec<Finding>, Box<dyn Error>> {
     let o = read(repo, id)?;
-    if !matches!(o.kind, Kind::Blob | Kind::Tree) {
-        return Ok(Vec::new());
-    }
     let object = format!("{} {}", o.kind, id.to_hex_with_len(7));
-    let item = blob_item(&id.to_string(), &o.data);
-    Ok(item_findings(m, &object, &item, IN_FILE))
+    let mut items = Vec::new();
+    match o.kind {
+        Kind::Blob => items.push(blob_item(&id.to_string(), &o.data)),
+        Kind::Tree => {
+            for e in repo.find_tree(id)?.traverse().breadthfirst.files()? {
+                if e.mode.is_blob_or_symlink() {
+                    let path = e.filepath.to_string();
+                    items.push(blob_item(&path, &read(repo, e.oid)?.data));
+                    items.push(name_item("file", path));
+                }
+            }
+        }
+        _ => {}
+    }
+    let mut found = Vec::new();
+    for item in &items {
+        found.extend(item_findings(m, &object, item, IN_FILE));
+    }
+    Ok(found)
 }
 
 // Everything a push sends that names you: its commits, tags, and blobs, and

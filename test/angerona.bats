@@ -169,10 +169,13 @@ push_private() {
 
 @test "a file path with the login blocks" {
 	repo
-	commit x/jdoe.xcuserdatad/y hello
+	mkdir -p x/jdoe.xcuserdatad
+	printf 'hello\n' >x/jdoe.xcuserdatad/y
+	git add x
+	git commit -qm hello
 	run git push origin main
 	[ "$status" -eq 1 ]
-	has jdoe.xcuserdatad
+	has "file x/jdoe.xcuserdatad/y"
 }
 
 @test "my email as author blocks" {
@@ -182,7 +185,7 @@ push_private() {
 	git -c user.email=me@home.example commit -qm a
 	run git push origin main
 	[ "$status" -eq 1 ]
-	has me@home.example
+	has "author  email me@home.example"
 }
 
 @test "my email in a Co-authored-by trailer blocks" {
@@ -241,6 +244,16 @@ push_private() {
 	run git push origin v1
 	[ "$status" -eq 1 ]
 	has bob@corp.example
+}
+
+@test "a tag on a tree is checked" {
+	repo
+	commit a.txt hello
+	commit d/b.txt /Users/jdoe/x
+	git tag -a t -m t 'HEAD^{tree}'
+	run git push origin t
+	[ "$status" -eq 1 ]
+	has "d/b.txt:1"
 }
 
 @test "a branch named after my login blocks" {
