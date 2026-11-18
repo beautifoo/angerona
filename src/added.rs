@@ -45,7 +45,7 @@ fn blobs(repo: &gix::Repository, tree: ObjectId) -> HashMap<BString, ObjectId> {
     };
     entries
         .into_iter()
-        .filter(|e| e.mode.is_blob())
+        .filter(|e| e.mode.is_blob_or_symlink())
         .map(|e| (e.filepath, e.oid))
         .collect()
 }
@@ -82,20 +82,26 @@ pub fn commit_items(
                 entry_mode,
                 id,
                 ..
-            } => (location, id, entry_mode.is_blob(), None, true),
+            } => (location, id, entry_mode.is_blob_or_symlink(), None, true),
             ChangeDetached::Modification {
                 location,
                 entry_mode,
                 id,
                 ..
-            } => (location, id, entry_mode.is_blob(), None, false),
+            } => (location, id, entry_mode.is_blob_or_symlink(), None, false),
             ChangeDetached::Rewrite {
                 location,
                 entry_mode,
                 id,
                 source_id,
                 ..
-            } => (location, id, entry_mode.is_blob(), Some(source_id), true),
+            } => (
+                location,
+                id,
+                entry_mode.is_blob_or_symlink(),
+                Some(source_id),
+                true,
+            ),
             ChangeDetached::Deletion { .. } => continue,
         };
         if !is_blob || !seen.insert((location.clone(), id)) {
@@ -163,6 +169,7 @@ mod tests {
             .current_dir(dir)
             .output()
             .unwrap();
+        assert!(out.status.success(), "git {args:?} failed");
         String::from_utf8(out.stdout).unwrap().trim().to_string()
     }
 
@@ -193,5 +200,28 @@ mod tests {
             })
             .collect();
         assert_eq!(shown, ["a.txt:2 three", "file moved.txt"]);
+    }
+
+    #[test]
+    fn symlink_target_and_name_are_added() {
+        let dir = std::env::temp_dir().join(format!("angerona-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        git(&dir, &["init", "-q"]);
+        std::os::unix::fs::symlink("/Users/secretuser/private", dir.join("link")).unwrap();
+        git(&dir, &["add", "."]);
+        git(&dir, &["commit", "-qm", "root"]);
+        let tree = git(&dir, &["rev-parse", "HEAD^{tree}"]).parse().unwrap();
+        let repo = gix::open(&dir).unwrap();
+        let items = commit_items(&repo, tree, &[]).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        let shown: Vec<String> = items
+            .iter()
+            .map(|i| match &i.label {
+                Label::Plain(p) => format!("{p} {}", String::from_utf8_lossy(&i.bytes)),
+                Label::Name(w, n) => format!("{w} {n}"),
+                _ => "other".into(),
+            })
+            .collect();
+        assert_eq!(shown, ["file link", "link:1 /Users/secretuser/private"]);
     }
 }
