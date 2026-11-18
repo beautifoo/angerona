@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.88"
 description = "Keeps the terms on a private list out of what you publish with git and MCP"
 repository = "https://github.com/beautifoo/angerona"
+homepage = "https://beauti.foo/projects/angerona"
 license = "MIT"
 
 [dependencies]
@@ -18,6 +19,11 @@ curl = { version = "0.4", default-features = false, features = ["ssl", "static-c
 
 [profile.release]
 strip = "none"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
 
 [lints.rust]
 # codesign -f in .cargo/link-hardened says it replaced the linker's signature.
