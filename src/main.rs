@@ -2,6 +2,8 @@
 mod details;
 mod doctor;
 #[allow(dead_code)]
+mod identity;
+#[allow(dead_code)]
 mod matcher;
 #[allow(dead_code)]
 mod push;
