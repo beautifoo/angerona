@@ -12,8 +12,9 @@ use gix::{
 use std::error::Error;
 
 pub const IN_FILE: &str = "edit the file, then amend or rebase";
-const IN_IDENTITY: &str =
-    "git rebase -i <base> --exec 'git commit --amend --no-edit --reset-author'";
+const IN_AUTHOR: &str = "git rebase -i <base> --exec 'git commit --amend --no-edit --reset-author'";
+const IN_COMMITTER: &str = "with the right user.email set, git rebase -i <base> --exec 'git commit --amend --no-edit' (keeps the author)";
+const IN_TAG: &str = "re-create the tag, with the right user.email set: git tag -d <name> && git tag -a <name> <commit>";
 const IN_MESSAGE: &str = "git rebase -i, reword";
 pub const IN_REF: &str = "push under another name: git push <remote> HEAD:refs/heads/<name>";
 
@@ -58,7 +59,8 @@ pub fn item_findings(m: &Matcher, object: &str, item: &Item, hint: &'static str)
 // Who a commit or tag names, and what its message says. A trailer is part of
 // the message, so it is found there, with the hint that fixes a message; the
 // header identities are matched on their own. Another person's email counts
-// only where identity::foreign says.
+// only where identity::foreign says. Anything in a tag is fixed by making
+// the tag again; a commit's committer, by a rebase that keeps the author.
 fn object_findings(
     raw: &[u8],
     object: &str,
@@ -66,6 +68,16 @@ fn object_findings(
     m: &Matcher,
     own: &[String],
 ) -> Vec<Finding> {
+    let is_tag = raw.starts_with(b"object ");
+    let ident_hint = |field: &str| {
+        if is_tag {
+            IN_TAG
+        } else if field == "author" {
+            IN_AUTHOR
+        } else {
+            IN_COMMITTER
+        }
+    };
     let o = identity::read(raw);
     let mut found = Vec::new();
     for i in &o.idents {
@@ -74,19 +86,20 @@ fn object_findings(
                 label: Label::Plain(i.field.clone()),
                 bytes: i.raw.clone().into_bytes(),
             };
-            found.extend(item_findings(m, object, &item, IN_IDENTITY));
+            found.extend(item_findings(m, object, &item, ident_hint(&i.field)));
         }
     }
     let message = Item {
         label: Label::Lines("message "),
         bytes: o.message.clone(),
     };
-    found.extend(item_findings(m, object, &message, IN_MESSAGE));
+    let message_hint = if is_tag { IN_TAG } else { IN_MESSAGE };
+    found.extend(item_findings(m, object, &message, message_hint));
     for i in foreign(&o, unpublished, own) {
         found.push(Finding {
             at: format!("{object} {}", i.field),
             what: format!("email {}", i.email),
-            hint: IN_IDENTITY,
+            hint: ident_hint(&i.field),
         });
     }
     found
@@ -219,6 +232,55 @@ pub fn render(f: &[Finding]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::details::Details;
+
+    const ME: &str = "me@home.example";
+
+    fn hints(raw: &str) -> Vec<&'static str> {
+        let m = Matcher::new(&Details {
+            emails: vec![(ME.into(), "test".into())],
+            home: None,
+            raw_login: Some("jdoe".into()),
+            login: None,
+            hosts: vec![],
+            weak: vec![],
+        });
+        object_findings(raw.as_bytes(), "x", true, &m, &[ME.to_string()])
+            .iter()
+            .map(|f| f.hint)
+            .collect()
+    }
+
+    #[test]
+    fn own_author_gets_the_reset_author_hint() {
+        let raw = format!(
+            "tree 0\nauthor A <{ME}> 1 +0000\ncommitter C <1+c@users.noreply.github.com> 1 +0000\n\nm\n"
+        );
+        assert_eq!(hints(&raw), vec![IN_AUTHOR]);
+    }
+
+    // A patch applied from someone else keeps them as its author.
+    #[test]
+    fn own_committer_alone_gets_a_hint_that_keeps_the_author() {
+        let raw = format!(
+            "tree 0\nauthor B <bob@corp.example> 1 +0000\ncommitter C <{ME}> 1 +0000\n\nm\n"
+        );
+        assert_eq!(hints(&raw), vec![IN_COMMITTER]);
+    }
+
+    #[test]
+    fn a_foreign_committer_gets_a_hint_that_keeps_the_author() {
+        let raw = "tree 0\nauthor B <bob@corp.example> 1 +0000\ncommitter C <c@corp.example> 1 +0000\n\nm\n";
+        assert_eq!(hints(raw), vec![IN_COMMITTER]);
+    }
+
+    #[test]
+    fn a_tag_gets_the_tag_hint() {
+        let raw = format!(
+            "object 0\ntype commit\ntag v1\ntagger T <{ME}> 1 +0000\n\nfrom /Users/jdoe/x\n"
+        );
+        assert_eq!(hints(&raw), vec![IN_TAG, IN_TAG]);
+    }
 
     #[test]
     fn render_gives_each_hint_once() {
