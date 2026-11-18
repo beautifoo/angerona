@@ -395,6 +395,22 @@ with_tty() {
 	lacks "Treat"
 }
 
+# A shell line that runs the hook as git would for a push of HEAD to main at a
+# URL with a user and token, the refs on its stdin.
+token_push() {
+	printf 'refs/heads/main %s refs/heads/main %040d\n' "$(git rev-parse HEAD)" 0 >"$BATS_TEST_TMPDIR/refs"
+	echo "'$AG' check-push origin https://me:token@example.invalid/r.git <'$BATS_TEST_TMPDIR/refs'"
+}
+
+@test "the unprobeable-URL question hides the URL's credentials" {
+	repo
+	commit a.txt hello
+	export ANGERONA_TEST_VISIBILITY=unprobeable
+	run with_tty $'n\n' sh -c "$(token_push)"
+	has "Treat https://example.invalid/r.git as public?"
+	lacks token
+}
+
 # A bin dir holding only git and a fake gh that runs the given script body.
 fake_gh() {
 	mkdir -p "$BATS_TEST_TMPDIR/bin"

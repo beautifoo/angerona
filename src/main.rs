@@ -84,9 +84,11 @@ fn check_push(remote: &str, url: &str) -> i32 {
 }
 
 // A URL that can never be probed is asked about on every push, and nothing
-// is saved. A failure to ask is checked as public.
+// is saved. A failure to ask is checked as public. The URL is shown without
+// its user and password.
 fn unprobeable_is_public(url: &str) -> bool {
-    tty::ask(&format!("Treat {url} as public? [Y/n]"), true).unwrap_or(true)
+    let shown = push::without_credentials(url);
+    tty::ask(&format!("Treat {shown} as public? [Y/n]"), true).unwrap_or(true)
 }
 
 // angerona scan: run by hand in a repo before it goes public.
