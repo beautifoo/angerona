@@ -41,8 +41,9 @@ fn span(caps: &Captures) -> Option<(usize, usize)> {
 }
 
 // An address is yours only whole: nothing that could be part of the name before it (a %XX
-// escape is a URL space, so it counts as a break) and no further domain label after it.
-// A full stop that ends a sentence is fine.
+// escape is a URL space, so it counts as a break) and no letter that lengthens its last
+// label after it. Anything after a full stop counts, so a file extension or a sentence end
+// does too, and so does a longer domain that starts with yours: a miss costs more.
 fn whole_address(text: &str, start: usize, end: usize) -> bool {
     let before = &text.as_bytes()[..start];
     let escaped = before.len() >= 3
@@ -51,12 +52,7 @@ fn whole_address(text: &str, start: usize, end: usize) -> bool {
     let name_char = |c: char| c.is_ascii_alphanumeric() || "._+-".contains(c);
     let starts_clean = escaped || !text[..start].chars().next_back().is_some_and(name_char);
     let label_char = |c: char| c.is_ascii_alphanumeric() || c == '-';
-    let mut after = text[end..].chars();
-    let ends_clean = match after.next() {
-        Some('.') => !after.next().is_some_and(label_char),
-        Some(c) => !label_char(c),
-        None => true,
-    };
+    let ends_clean = !text[end..].chars().next().is_some_and(label_char);
     starts_clean && ends_clean
 }
 
@@ -279,11 +275,30 @@ mod tests {
 
     #[test]
     fn own_email_whole_only() {
-        let got: Vec<_> = ["notme@home.example", "me@home.example.org"]
+        let got: Vec<_> = ["notme@home.example", "me@home.examplex"]
             .iter()
             .map(|t| kinds(t))
             .collect();
         assert_eq!(got, vec![vec![], vec![]]);
+    }
+
+    // Over-reporting an address that only starts with yours is the safe side.
+    #[test]
+    fn own_email_before_another_label_is_found() {
+        assert_eq!(kinds("me@home.example.org"), vec![Kind::Email]);
+    }
+
+    #[test]
+    fn own_email_as_a_file_name_is_found() {
+        assert_eq!(kinds("keys/me@home.example.asc"), vec![Kind::Email]);
+    }
+
+    #[test]
+    fn own_email_before_an_extension_in_text_is_found() {
+        assert_eq!(
+            kinds("see avatar/me@home.example.png here"),
+            vec![Kind::Email]
+        );
     }
 
     #[test]
