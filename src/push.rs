@@ -5,7 +5,7 @@ use gix::{
     protocol::handshake::Ref,
     remote::{Direction, fetch::Tags, ref_map},
 };
-use std::collections::HashSet;
+use std::{collections::HashSet, error::Error};
 
 pub struct RefLine {
     pub local_ref: String,
@@ -76,48 +76,74 @@ pub fn may_ask(url: &str) -> bool {
     !encoded && !helper
 }
 
-// The objects the remote says it holds, and this repo has. It is asked at the
-// URL git gives, which git has already rewritten, so it isn't rewritten again,
-// or else by its name. Remote-tracking refs are not trusted: they go stale,
-// and a remote's URL can change under them. If the remote can't be asked,
-// nothing is held, and each pushed ref's whole history is scanned.
-pub fn held(repo: &gix::Repository, remote: &str, url: Option<&str>) -> Vec<ObjectId> {
-    let target = url.unwrap_or(remote);
+// The objects the remote holds, and this repo has: the ids the public check
+// was given; else the remote's refs, listed over the push transport at the
+// URL git gives, which git has already rewritten, so it isn't rewritten
+// again; else its remote-tracking refs, which can be stale. If all of them
+// fail, nothing is held, and each pushed ref's whole history is scanned.
+pub fn held(
+    repo: &gix::Repository,
+    remote: &str,
+    url: &str,
+    advert: Option<Vec<ObjectId>>,
+) -> Vec<ObjectId> {
+    let ids = advert
+        .or_else(|| listed(repo, remote, url))
+        .or_else(|| tracking(repo, remote));
+    let Some(ids) = ids else {
+        eprintln!(
+            "angerona: note: can't ask {} what it holds, scanning the whole history",
+            without_credentials(url)
+        );
+        return Vec::new();
+    };
+    let mut held = Vec::new();
+    for id in ids {
+        if repo.has_object(id) {
+            held.push(id);
+        }
+    }
+    held
+}
+
+// The remote's refs over the push transport. A tag's ref names the tag and
+// the commit it peels to, as ls-remote does.
+fn listed(repo: &gix::Repository, remote: &str, url: &str) -> Option<Vec<ObjectId>> {
     // remote.<name>.vcs names a remote helper too.
     let vcs = repo
         .config_snapshot()
         .string(&format!("remote.{remote}.vcs"))
         .is_some();
-    let listed = if may_ask(target) && !vcs {
-        list_refs(repo, remote, url)
-    } else {
-        None
-    };
-    let Some(refs) = listed else {
-        eprintln!(
-            "angerona: note: can't ask {} what it holds, scanning the whole history",
-            without_credentials(target)
-        );
-        return Vec::new();
-    };
+    if !may_ask(url) || vcs {
+        return None;
+    }
     let mut ids = Vec::new();
-    for r in &refs {
-        // A tag's ref names the tag and the commit it peels to, as ls-remote does.
+    for r in &list_refs(repo, url)? {
         let (_, points_to, peeled) = r.unpack();
         for id in [points_to, peeled].into_iter().flatten() {
-            if repo.has_object(id) {
-                ids.push(id.to_owned());
-            }
+            ids.push(id.to_owned());
         }
     }
-    ids
+    Some(ids)
 }
 
-fn list_refs(repo: &gix::Repository, remote: &str, url: Option<&str>) -> Option<Vec<Ref>> {
-    let r = match url {
-        Some(url) => repo.remote_at_without_url_rewrite(url).ok()?,
-        None => repo.find_fetch_remote(Some(remote.into())).ok()?,
-    };
+// The ids of refs/remotes/<remote>/*; none is nothing to go by.
+fn tracking(repo: &gix::Repository, remote: &str) -> Option<Vec<ObjectId>> {
+    let ids = ref_ids(repo, &format!("refs/remotes/{remote}/")).ok()?;
+    (!ids.is_empty()).then_some(ids)
+}
+
+// The ids of the refs under prefix that name an object, not another ref.
+fn ref_ids(repo: &gix::Repository, prefix: &str) -> Result<Vec<ObjectId>, Box<dyn Error>> {
+    let mut ids = Vec::new();
+    for r in repo.references()?.prefixed(prefix)? {
+        ids.extend(r?.try_id().map(|id| id.detach()));
+    }
+    Ok(ids)
+}
+
+fn list_refs(repo: &gix::Repository, url: &str) -> Option<Vec<Ref>> {
+    let r = repo.remote_at_without_url_rewrite(url).ok()?;
     let options = ref_map::Options {
         prefix_from_spec_as_filter_on_remote: false,
         ..Default::default()
@@ -144,12 +170,12 @@ pub fn without_credentials(url: &str) -> String {
     }
 }
 
-fn read(repo: &gix::Repository, id: ObjectId) -> gix::Result<gix::ObjectDetached> {
+pub fn read(repo: &gix::Repository, id: ObjectId) -> gix::Result<gix::ObjectDetached> {
     Ok(repo.find_object(id)?.detach())
 }
 
 // Git takes the commits in .git/shallow to have no parents.
-fn parents(
+pub fn parents(
     id: ObjectId,
     commit: &[u8],
     shallow: &HashSet<ObjectId>,
@@ -161,6 +187,69 @@ fn parents(
     CommitRefIter::from_bytes(commit, hash)
         .parent_ids()
         .collect()
+}
+
+// What a push sends. `bool` says a commit is unpublished: no remote-tracking
+// ref of any remote reaches it. `blobs` are the blobs and trees a pushed ref
+// names itself; a tag's own target is read with the tag.
+pub struct Outgoing {
+    pub commits: Vec<(ObjectId, bool)>,
+    pub tags: Vec<ObjectId>,
+    pub blobs: Vec<ObjectId>,
+}
+
+// The commits reachable from the pushed shas and not from what the remote
+// holds, as `git rev-list <tips> ^<held>` lists them, and every tag object on
+// the way, even one whose commit the remote holds. gix ignores grafts, so a
+// repo with them must be refused before this.
+pub fn outgoing(
+    repo: &gix::Repository,
+    refs: &[RefLine],
+    held: &[ObjectId],
+) -> Result<Outgoing, Box<dyn Error>> {
+    let hash = repo.object_hash();
+    let shallow: HashSet<ObjectId> = repo
+        .shallow_commits()?
+        .map(|ids| ids.iter().copied().collect())
+        .unwrap_or_default();
+    let remote = remote_commits(repo, held, &shallow);
+    let published = remote_commits(repo, &ref_ids(repo, "refs/remotes/")?, &shallow);
+
+    let mut out = Outgoing {
+        commits: Vec::new(),
+        tags: Vec::new(),
+        blobs: Vec::new(),
+    };
+    // Each object to read, and whether a pushed ref names it itself.
+    let mut stack = Vec::new();
+    for r in refs {
+        stack.push((ObjectId::from_hex(r.sha.as_bytes())?, true));
+    }
+    let mut seen = HashSet::new();
+    while let Some((id, named)) = stack.pop() {
+        if remote.contains(&id) || !seen.insert(id) {
+            continue;
+        }
+        let o = read(repo, id)?;
+        match o.kind {
+            Kind::Tag => {
+                out.tags.push(id);
+                stack.push((TagRefIter::from_bytes(&o.data, hash).target_id()?, false));
+            }
+            Kind::Commit => {
+                out.commits.push((id, !published.contains(&id)));
+                for p in parents(id, &o.data, &shallow, hash) {
+                    stack.push((p, false));
+                }
+            }
+            Kind::Blob | Kind::Tree => {
+                if named {
+                    out.blobs.push(id);
+                }
+            }
+        }
+    }
+    Ok(out)
 }
 
 // Every commit the remote holds that this repo has. What can't be read is
@@ -224,10 +313,10 @@ mod tests {
 
     #[test]
     fn drops_only_a_signatures_base64() {
-        let c = b"tree t\ngpgsig -----BEGIN PGP SIGNATURE-----\n Comment: kept globex\n iQEzBAAB+/=\n -----END PGP SIGNATURE-----\nauthor A\n\nmsg gpgsig body\n";
+        let c = b"tree t\ngpgsig -----BEGIN PGP SIGNATURE-----\n Comment: kept zebra\n iQEzBAAB+/=\n -----END PGP SIGNATURE-----\nauthor A\n\nmsg gpgsig body\n";
         assert_eq!(
             strip_signature(c),
-            b"tree t\n Comment: kept globex\n -----END PGP SIGNATURE-----\nauthor A\n\nmsg gpgsig body\n"
+            b"tree t\n Comment: kept zebra\n -----END PGP SIGNATURE-----\nauthor A\n\nmsg gpgsig body\n"
         );
     }
 }
