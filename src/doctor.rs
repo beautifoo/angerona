@@ -68,24 +68,28 @@ pub fn run() -> i32 {
         notes += "no includeIf in your global git config; give each host its own email with includeIf \"hasconfig:remote.*.url:git@<host>:**\" and a path to a file that sets user.email\n";
     }
 
-    let hook = git_global("hook.angerona.command").as_deref() == Some(setup::HOOK_COMMAND)
+    let hook = git_global("hook.angerona.command") == Some(setup::hook_command())
         && git_global("hook.angerona.event").as_deref() == Some("pre-push");
     if !hook {
         problems += "the pre-push hook is missing or changed (hook.angerona.command, hook.angerona.event); fix: angerona setup\n";
     }
 
-    // The PATH apps started from the Dock give hooks.
+    // The hook line's own lookup, under the bare PATH an app started outside
+    // a terminal gives its hooks.
     let found = Command::new("/usr/bin/env")
         .args([
             "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
             "sh",
             "-c",
-            "command -v angerona",
+            &format!("{}; command -v angerona", setup::widen_path()),
         ])
         .output()
         .is_ok_and(|o| o.status.success());
     if !found {
-        notes += "apps started from the Dock won't find angerona, so their pushes print 'not checked'; link it into /usr/local/bin\n";
+        notes += &format!(
+            "apps started outside a terminal won't find angerona, so their pushes print 'not checked'; fix: install it in one of {}, or run angerona setup again\n",
+            setup::APP_DIRS.replace("$HOME", "~").replace(':', ", ")
+        );
     }
 
     if git_global("user.signingkey").is_some_and(|k| k.contains('@')) {

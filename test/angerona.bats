@@ -433,7 +433,7 @@ global_repo() {
 	git remote add origin "$BATS_TEST_TMPDIR/origin.git"
 }
 
-HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@"; else echo '\''angerona not installed, push not checked'\'' >&2; fi; }; f'
+HOOK='f() { PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin:/home/linuxbrew/.linuxbrew/bin"; if command -v angerona >/dev/null 2>&1; then angerona check-push "$@"; else echo '\''angerona not installed, push not checked'\'' >&2; fi; }; f'
 
 @test "setup writes the hook into the global config" {
 	no_gh
@@ -451,7 +451,8 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 @test "setup keeps the home path out of the global config" {
 	no_gh
 	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
-	run grep -e /Users/ -e '$HOME' "$GIT_CONFIG_GLOBAL"
+	# A $HOME the hook expands when it runs is fine; the path itself is not.
+	run grep -e /Users/ -e "$HOME" "$GIT_CONFIG_GLOBAL"
 	[ "$status" -eq 1 ]
 }
 
@@ -477,7 +478,23 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	has "this push names you"
 }
 
+@test "the hook line finds angerona where cargo installs it" {
+	no_gh
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
+	mkdir -p "$HOME/.cargo/bin"
+	ln -s "$AG" "$HOME/.cargo/bin/angerona"
+	global_repo
+	commit a.txt /Users/jdoe/x
+	PATH=$BATS_TEST_TMPDIR/bin:/bin run git push origin main
+	[ "$status" -eq 1 ]
+	has "this push names you"
+}
+
 @test "without angerona the push passes with a warning" {
+	# The hook line also looks where Homebrew installs, which HOME can't hide.
+	for d in /opt/homebrew/bin /usr/local/bin /home/linuxbrew/.linuxbrew/bin; do
+		[ ! -e "$d/angerona" ] || skip "angerona is installed in $d"
+	done
 	no_gh
 	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
 	global_repo
@@ -652,6 +669,23 @@ good_setup() {
 	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
 	[ "$status" -eq 1 ]
 	has "hook.angerona.command"
+}
+
+@test "doctor finds angerona where the hook line looks" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	mkdir -p "$HOME/.cargo/bin"
+	ln -s "$AG" "$HOME/.cargo/bin/angerona"
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	lacks "won't find angerona"
+}
+
+@test "doctor says where to install angerona for apps" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	has "~/.cargo/bin"
+	has "run angerona setup again"
 }
 
 @test "doctor notes a weak login" {

@@ -33,7 +33,9 @@ angerona setup
 
 This writes one pre-push hook into your global git config
 (`hook.angerona.event` and `hook.angerona.command`). The hook line holds no
-home path, so it is safe in a public dotfiles repo. On a machine without
+home path, so it is safe in a public dotfiles repo. It also looks where
+Homebrew and cargo install angerona, so a push from an app started outside a
+terminal is checked too. On a machine without
 angerona it prints `angerona not installed, push not checked` and lets the
 push go.
 
