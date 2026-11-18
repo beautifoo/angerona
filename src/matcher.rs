@@ -40,6 +40,26 @@ fn span(caps: &Captures) -> Option<(usize, usize)> {
         .map(|m| (m.start(), m.end()))
 }
 
+// An address is yours only whole: nothing that could be part of the name before it (a %XX
+// escape is a URL space, so it counts as a break) and no further domain label after it.
+// A full stop that ends a sentence is fine.
+fn whole_address(text: &str, start: usize, end: usize) -> bool {
+    let before = &text.as_bytes()[..start];
+    let escaped = before.len() >= 3
+        && before[before.len() - 3] == b'%'
+        && before[before.len() - 2..].iter().all(u8::is_ascii_hexdigit);
+    let name_char = |c: char| c.is_ascii_alphanumeric() || "._+-".contains(c);
+    let starts_clean = escaped || !text[..start].chars().next_back().is_some_and(name_char);
+    let label_char = |c: char| c.is_ascii_alphanumeric() || c == '-';
+    let mut after = text[end..].chars();
+    let ends_clean = match after.next() {
+        Some('.') => !after.next().is_some_and(label_char),
+        Some(c) => !label_char(c),
+        None => true,
+    };
+    starts_clean && ends_clean
+}
+
 fn build(pattern: &str) -> Regex {
     Regex::new(&format!("(?i){pattern}")).expect("pattern is built from escaped details")
 }
@@ -56,17 +76,13 @@ impl Matcher {
             home.push(format!("((?:Users|home){SEP}+{l}){PATH_END}"));
             home.push(format!("(~{l}){SEP}"));
         }
-        // Matched as written, so an apostrophe or accent in the address still counts. Whole
-        // address only: no name character before it (a % is a space in a URL) and no
-        // further domain label after it.
+        // Matched as written, so an apostrophe or accent in the address still counts. The
+        // whole-address check happens in whole_address, so no text is consumed here.
         let emails: Vec<_> = d.emails.iter().map(|(e, _)| regex::escape(e)).collect();
         let emails = if emails.is_empty() {
             vec![]
         } else {
-            let all = emails.join("|");
-            vec![format!(
-                r"(?:^|[^A-Za-z0-9._+-]|%[0-9A-Fa-f]{{2}})({all})(?:[^A-Za-z0-9.-]|\.(?:[^A-Za-z0-9-]|$)|$)"
-            )]
+            vec![format!("({})", emails.join("|"))]
         };
         let mut login = vec![];
         let mut host = vec![];
@@ -106,9 +122,15 @@ impl Matcher {
                 noreply.push((m.start(), m.start() + s.len()));
             }
         }
+        if let Some(re) = &self.email {
+            for m in re.find_iter(text) {
+                if whole_address(text, m.start(), m.end()) {
+                    found.push((m.start(), m.end(), Kind::Email));
+                }
+            }
+        }
         let unmasked = |(a, b): &(usize, usize)| !noreply.iter().any(|(x, y)| a < y && x < b);
         let rules = [
-            (&self.email, Kind::Email, false),
             (&self.home, Kind::HomePath, false),
             (&self.login, Kind::Login, true),
             (&self.host, Kind::Host, true),
@@ -338,5 +360,23 @@ mod tests {
     #[test]
     fn json_escaped_tilde_form_is_found() {
         assert_eq!(kinds(r"~jdoe\/x"), vec![Kind::HomePath]);
+    }
+
+    #[test]
+    fn two_copies_on_one_line_are_both_found() {
+        assert_eq!(
+            kinds("me@home.example me@home.example"),
+            vec![Kind::Email, Kind::Email]
+        );
+    }
+
+    #[test]
+    fn two_copies_on_two_lines_are_both_found() {
+        let lines: Vec<_> = matcher()
+            .find("me@home.example\nme@home.example")
+            .iter()
+            .map(|h| h.line)
+            .collect();
+        assert_eq!(lines, vec![1, 2]);
     }
 }
