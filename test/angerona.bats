@@ -348,6 +348,8 @@ with_tty() {
 	run with_tty $'\n' git push origin main
 	[ "$status" -eq 1 ]
 	has "other hooks may still refuse this push"
+	has "Push anyway?"
+	lacks "--no-verify"
 }
 
 @test "without a terminal a finding blocks and names --no-verify" {
