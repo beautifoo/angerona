@@ -5,9 +5,7 @@ mod doctor;
 mod identity;
 mod matcher;
 mod public;
-#[allow(dead_code)]
 mod push;
-#[allow(dead_code)]
 mod repo;
 mod scan;
 mod setup;

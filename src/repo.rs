@@ -4,7 +4,7 @@ use std::{
     error::Error,
     fs,
     os::unix::fs::MetadataExt,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 // Whether a and b name the same file, by its device and inode.
@@ -32,20 +32,6 @@ pub fn start(dir: &Path) -> std::io::Result<PathBuf> {
     } else {
         Ok(fs::canonicalize(&named).unwrap_or(named))
     }
-}
-
-// The path with each ".." folded into the part before it, without reading the
-// filesystem, as git names a path it was handed that way.
-pub fn fold_dotdot(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for part in path.components() {
-        if part == Component::ParentDir {
-            out.pop();
-        } else {
-            out.push(part);
-        }
-    }
-    out
 }
 
 // The repository git would use from start, as a hook sees it, reading the
