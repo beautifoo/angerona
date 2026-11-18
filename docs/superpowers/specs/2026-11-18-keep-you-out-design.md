@@ -1,0 +1,162 @@
+# angerona: keep you out of what you publish
+
+Design, 2026-11-18. Replaces the old scope (a private list of work terms kept out of commits, pushes and MCP calls), which gitleaks now covers for the owner.
+
+## Intent
+
+angerona keeps the person behind the code out of what they publish with git. Not secrets (gitleaks and friends do those) but **personal details**: your emails, your home path, your login name, your machine's name.
+
+The owner already commits with his GitHub noreply address so his personal email stays private. angerona makes sure nothing slips past that habit: a commit made before the alias was set, a cherry-pick or `git am` from a work clone that keeps the work email, a `Co-authored-by` trailer, an agent writing `/Users/<login>/...` into `.mcp.json`, a terminal prompt `login@host` pasted into a README.
+
+It must be useful to other developers, not only the owner. The first version protects **one developer, on their own machine**.
+
+## Goals
+
+- Zero setup for what counts as you: everything is found on the machine.
+- Check only what goes to a **public repo**. Pushes to private repos (work, personal) pass untouched.
+- One hook, at push time, the last local point before publishing. No commit hook: personal details rarely change, and a push check catches both carried-over commits and file contents.
+- A one-off `scan` for an existing repo before making it public.
+- A `doctor` that checks the git settings that prevent most leaks in the first place.
+
+## Non-goals (first version)
+
+- CI checks for other projects, and a GitHub Action. (An Action comes later.)
+- Windows paths and builds.
+- A user-maintained list of extra details (old usernames, a real email set nowhere). The old angerona was that list.
+- Release files and tarballs, paths inside shipped binaries.
+- Agent and MCP checks.
+- Rewriting history. `scan` reports; `git filter-repo` fixes.
+- Secrets of any kind.
+
+## Anti-goals
+
+- **Prompt fatigue.** If the hook asks on ordinary pushes (fork syncs, patches from others), people learn to answer y without reading, and the tool is worse than nothing. Every rule below that narrows what is flagged exists for this.
+- **Failing open by accident.** An error while walking or reading must never read as "nothing to check". The one deliberate pass-through is a machine without angerona installed, and it says so on every push.
+- **Leaking through angerona itself.** Lines it writes to the global config (often in a public dotfiles repo) hold no home path; its public check sends no credentials anywhere.
+- **Editing the user's config beyond what was asked.** Only `setup` writes the global config; the hook writes no config.
+
+## Language
+
+See `GLOSSARY.md`: **personal detail**, **outgoing commit**, **unpublished commit**, **public repo**, **noreply address**.
+
+## What counts as you
+
+- **Emails:** every `user.email` in every git config file: system, global, and every file reached through `include` and `includeIf`, *whatever the condition* (so the work email set only under `~/Developer/work/` is known from a personal repo too), following nested includes, relative paths resolved from the including file. Plus the `EMAIL`, `GIT_AUTHOR_EMAIL` and `GIT_COMMITTER_EMAIL` environment variables. Noreply addresses are never personal details.
+- **Home path:** `realpath($HOME)` and the `/Users/<login>` or `/home/<login>` forms, matched case-insensitively and in escaped forms: `\/` (JSON), `\` and `\\`, `%2F`, `file:///`, `~<login>/`. No full decoding step: one pattern.
+- **Login name:** only right after a home root (`Users`, `home`, `~`), in the `<login>.xcuserdatad` form, in `<login>@<hostname>` text (with or without a domain, the macOS shell prompt form), and **as a branch-name prefix** (`<login>/feature`): the owner decided this is a leak. Never as a bare word or a lone path part (`/dev/null` must not match a `dev` login). Logins shorter than 3 characters or generic (root, admin, user, dev, test, pi, ubuntu, runner, and the like) get the same floor as machine names: not matched by the login rules (the home path itself still is), and `doctor` says so.
+- **Machine name:** every form macOS has (`scutil` HostName and LocalHostName, plus `hostname`), case-insensitive, `.local` and domain stripped. ComputerName is skipped (spaces, full name). Matched only as `<login>@<host>` or as the full domain label after `@` (`x@host.local`), never as any label of any domain. Names shorter than 4 characters, `localhost`, and generic names (Mac, ubuntu, raspberrypi, and the like) are not matched; `doctor` says so and suggests setting a unique name.
+- **Not your full name:** it is on every commit anyway.
+
+### Noreply addresses
+
+An address is noreply when its local part is `noreply` or `no-reply`, or its domain starts with `noreply.` or `users.noreply.` (GitHub `<id>+<user>@users.noreply.github.com`, GitLab `users.noreply.<host>`, Forgejo `noreply.<domain>`, bot addresses like `noreply@anthropic.com`). This is a heuristic, on purpose: no fixed domain list can cover self-hosted forges. The noreply test runs on the whole address first, and no login or hostname matching runs inside a noreply address.
+
+## The pieces
+
+### `angerona setup`
+
+Writes the pre-push hook into the global git config (git ≥ 2.54 config-based hooks: `hook.angerona.event = pre-push`, `hook.angerona.command = …`). The command line holds no home path (bare `angerona`, or `~/...`; git runs hook commands through `sh`, so `~` expands even under a GUI app's launchd PATH). When `angerona` is not on PATH, the line prints `angerona not installed, push not checked` and exits 0: the global config is often shared through dotfiles to machines without angerona.
+
+Setup never sets `parallel = true`. If the global config file is a symlink (dotfiles), setup writes through it rather than replacing it.
+
+### Pre-push hook
+
+**1. Is the target public?** Judge the URL git passes as the hook's second argument (it already has `pushurl` and `pushInsteadOf` applied; git runs the hook once per push URL). Take its https form: SSH forms are mapped by resolving the host with `ssh -G <host>` (stdin closed) and reading `hostname`, dropping the SSH port, mapping `ssh.github.com` to `github.com`. Then make **one plain HTTP GET** of `<https-url>/info/refs?service=git-upload-pack`, with no credentials of any kind (user and password stripped from the URL; no netrc, no git credential helpers, no `insteadOf`; not through `git ls-remote`, which was shown to send `GIT_ASKPASS`, netrc and URL-scoped header credentials, and to follow `insteadOf` to SSH), following redirects, `--connect-timeout 3 --max-time 5` or equivalent.
+
+- **Public:** final 200 with content type `application/x-git-upload-pack-advertisement`.
+- **Private:** final 401, 403 or 404, or a local path or `file://` URL (your own disk). The push passes unchecked.
+- **Can never be probed** (a steady answer that isn't git's): an SSH host with no https mapping, connection refused, a sign-in or other HTML page, a 200 with another content type, a TLS certificate error (self-signed internal host).
+- **Passing failure:** timeout, DNS failure, 5xx, 429.
+
+For a URL that can never be probed: ask on `/dev/tty` on every push, `Treat <url> as public? [Y/n]`, and save nothing. With no terminal: check as public. After a passing failure, **never ask**: check the push as public. A URL answered as private passes unchecked, as a private one does.
+
+The response body of the public check is the remote's ref list, so it also gives what the remote already has (step 2) with no extra request. When there is no such list (a passing failure, or a URL answered or assumed public), list the remote's refs over the push transport itself, with the user's normal credentials, as `git push` does (today's `push::held`); if that fails too, use that remote's remote-tracking refs. The no-credentials rule is for deciding public or private; this listing goes to the place the push goes anyway.
+
+**2. What goes out.** The remote's refs from step 1, kept only where the object exists locally, are what the remote has. Outgoing commits are the commits reachable from the pushed local shas and not from those. Remote shas from the hook's stdin are only a hint; a remote sha missing locally is ignored, never an error. **Unpublished commits** are outgoing commits no remote-tracking ref of any remote reaches. Annotated tags in the push are read directly as objects (also when they point at a commit the remote already has, or at a blob or tree). Partial clones: set `GIT_NO_LAZY_FETCH=1` or the gix equivalent, and treat a missing parent blob as "every line is new".
+
+**3. What is checked, per outgoing commit:**
+
+- **Added lines:** lines in each changed file that are not in that file's version in *any* parent (set difference, not a diff algorithm; covers merge-conflict edits without re-reporting the merged-in side). A blob that already exists in a parent's tree adds nothing (a pure rename or move). A renamed and edited file is compared with its rename source (gix rename tracking). A root commit or a missing parent: every line is new.
+- **File paths** of every added or renamed file.
+- **Binary blobs** (as git decides binary): searched whole, as bytes, in UTF-8 and UTF-16 LE/BE (text-run reader already in `scan.rs`).
+- **Identities and trailers:** author, committer, tagger, and every `Name <email>` trailer (`Co-authored-by`, `Signed-off-by`, `Reported-by`, `Reviewed-by`, `Helped-by`, …), read from the raw object, never through mailmap-aware formats.
+- **Commit and tag messages**, signatures stripped.
+- **The remote ref name** only (the local name never reaches the remote).
+
+**Email rule:** your emails are flagged anywhere in any outgoing commit: identities, trailers, messages, lines, paths, binaries. Any other non-noreply email is flagged **only as the committer of an unpublished commit or the tagger of a tag in the push**, the fields that say who ran git. So fork syncs and other people's already-public commits stay quiet; a patch you apply (`git am`, a cherry-pick of a contributor's branch) has you as committer and the contributor as author, and stays quiet; a commit made on another machine under a personal email set nowhere on this one is still caught. Other people's emails in authors, trailers and content are never flagged. Home path, login and machine-name rules apply to all outgoing content.
+
+**4. On a finding:** list each finding (commit, where, what, a fix hint), then with a terminal (`/dev/tty` opens) ask `Push anyway? [y/N]`, default No. Never read the answer from stdin (it holds the ref lines). Without a terminal: block, and say that `git push --no-verify` pushes once past it (and also skips every other pre-push hook). The prompt mentions that other hooks may still refuse the push. Any internal error blocks.
+
+### `angerona scan`
+
+Run by hand in an existing repo, typically before making it public. Checks every commit in the history (all refs) with the same per-commit rules, treating every commit as unpublished (so any non-noreply committer or tagger email is flagged), plus every file in the current tree, binaries included. Reports only, with fix hints: `git filter-repo` for history (with the mailmap kept outside the repo, since a committed `.mailmap` would publish the old address), edits for current files. Warns loudly on a shallow or partial clone ("fetch --unshallow first"). Prints progress after about 2 s.
+
+### `angerona doctor`
+
+Checks and prints what to fix:
+
+- `user.useConfigOnly = true` (stops git guessing `login@host`).
+- An identity per host via `includeIf` (gitdir or `hasconfig:remote.*.url`).
+- The global `user.email` is a noreply address; lists every email angerona found and where.
+- The hook is installed, the binary runs under a launchd-like PATH, git is ≥ 2.54.
+- `user.signingkey` (or gpg's default key) is not an email address (a GPG key given as an email embeds that email in every signature); suggest the fingerprint.
+- The machine name is unique enough to match (see above).
+- A reminder to turn on the forge's email privacy setting (GitHub "Keep my email addresses private"), since commits made on the website never pass through the hook.
+- One closing line: repos already public are not rechecked; run `angerona scan` in each.
+
+## Constraints
+
+- Rust, gix 0.90, on top of the current `main`. No new dependency for the HTTP check: the curl crate is already in the tree through gix's transport.
+- macOS and Linux. Release builds for Linux (static) are added to `dist-workspace.toml`; today it builds `aarch64-apple-darwin` only.
+- git ≥ 2.54 for config-based hooks (Apple git 2.54 also runs them).
+- Many users keep their global git config in a public dotfiles repo.
+- angerona's own CI stays: `test.yml`, the cargo-dist release, attestations, the Homebrew tap. `HOMEBREW_TAP_TOKEN` must be renewed before 2027-11-19.
+
+## Approaches
+
+- **A. Build on `main`, read git in-process with gix. Picked.** Keep the 43 published commits; delete the old guard's modules; reuse the push walk (`push.rs`: ref listing, outgoing commits, headers), the binary/UTF-16 text-run reader (`scan.rs`) and parts of `doctor.rs`. Added lines by set difference against each parent, which needs no diff algorithm and covers merges (gix-diff 0.70 has no combined diff). Fast (the current walk takes about 0.03 s on an 8 MB repo) and no parsing of git's text output.
+- **B. Build on `main`, run `git log -p --cc --no-mailmap …`.** Exact git semantics for merges and binaries, less code of our own, but parses git's text output and was slow on big histories (about 12 s and 375 MB of output for a 14k-commit repo). Not picked.
+- **C. Fresh history, force-push over `main`.** Clean story, but rewrites 43 public commits for tidiness only; the old guard is already public and the history explains the pivot. Not picked.
+
+## Decided by the owner
+
+- The new scope, and that the first version protects one developer on their own machine.
+- Three pieces: `doctor`, pre-push hook, `scan`; plus `setup` to write the hook.
+- No commit hook. Hook only for public repos; private is fine, and `scan` covers a repo going public later.
+- "Can't tell" → ask on every push, only for hosts that can never be probed; no terminal → check.
+- Your emails flagged anywhere in any outgoing commit; others' non-noreply emails only in commit identities, and only as committer of an unpublished commit or tagger (so applied patches stay quiet). Same in `scan`.
+- No way to allow a personal detail on purpose in a repo: only added lines are checked, so answering y is enough.
+- The login as a branch prefix is a personal detail.
+- Added lines only in the hook; whole history and files in `scan`.
+- On a finding: `Push anyway? [y/N]`; without a terminal, block and point to `--no-verify`.
+- Missing binary: warn and push.
+- Generic machine name: `doctor` tells you.
+- `doctor` does not search the disk for public repos; one closing line instead.
+- `scan` reports only.
+- macOS and Linux; no CI checks, Windows, extras list, release files or agent checks in this version.
+- Keep angerona's own CI, release pipeline and tap.
+- Approach A.
+- The old local branches `bash-main` and `feat/rust-rewrite` are deleted (done 2026-11-18).
+
+## Calls made in design (owner can override)
+
+- The public check is a plain HTTP GET, not `git ls-remote` (credential leaks shown in testing).
+- Matching forms for home path, login and machine name above, and the noreply heuristic.
+- Fail closed on every internal error; the one fail-open is the missing binary.
+- Identities read from raw objects (mailmap would hide real emails).
+- `scan` treats every commit as unpublished (no remote to compare against).
+- The public-check outcome table (public, private, can never be probed, passing failure) above.
+- With no ref list from the public check, list refs over the push transport, then fall back to remote-tracking refs.
+- Pure renames add nothing; renamed and edited files compare with their source.
+- Short and generic logins get the machine-name floor.
+- No migration from the old hooks: nothing was released, and no machine runs them.
+- Accepted and documented gaps: "internal" enterprise repos count as private; LFS content, compressed files (zip, gzip, images) and commits made on the forge's website are not checked; a commit already on a private remote and pushed to a public one is checked for your emails and paths but not for others' emails.
+- ADR 0001 (one hook name per event) no longer applies: there is one hook. Mark it superseded.
+
+## Left to the builder
+
+- Module layout, function names, output wording and colours.
+- How the hook command line guards a missing binary (an `sh` one-liner or similar).
+- Test layout (unit tests plus bats, as today) and fixture design.
+- The order of commits on `main`, as long as each one builds and passes tests.
+- README, `Cargo.toml` description, and the GitHub description and topics for the new scope (changing GitHub needs the owner's yes).
