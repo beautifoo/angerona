@@ -1,25 +1,25 @@
 # angerona
 
-Keeps the names on a private list out of what you publish with git and what an agent sends to an MCP server.
+Keeps you out of what you publish with git: your emails, your home path, your login name and your machine's name.
 
 ## Language
 
-**Term**:
-A name on the list that must stay out of what you publish, matched as written, in any case, even inside a longer word.
-_Avoid_: word, pattern, secret
+**Personal detail**:
+One of your emails, your home path, your login name or your machine's name, as found on the machine; your full name is not one.
+_Avoid_: trace, identity, PII, term
 
-**List**:
-The private file of terms, kept outside every repo.
-_Avoid_: term file, blocklist
+**Outgoing commit**:
+A commit a push sends that the repo it goes to doesn't have yet.
+_Avoid_: pushed commit, new commit
 
-**Guard**:
-The three git hooks and the Claude Code hook that refuse anything naming a term.
-_Avoid_: filter, scanner
+**Unpublished commit**:
+An outgoing commit that no remote you know of has yet, so nobody else can have published it.
+_Avoid_: new commit, local commit
 
-**Switched off**:
-A guard hook is switched off in a repo when git's config there tells git not to run it, on purpose where the terms belong.
-_Avoid_: disabled, turned off, bypassed
+**Public repo**:
+A repo anyone can read without logging in, or one you told angerona to treat as public.
+_Avoid_: open repo, published repo
 
-**Work session**:
-A Claude Code session whose project is a repo where the push hook is switched off, other than by the system config; its MCP calls pass unscanned, except a GitHub call that names no owner, or one that isn't the repo's own.
-_Avoid_: work mode, work repo
+**Noreply address**:
+An email a git host gives you to sign commits with in place of your real one, safe to publish.
+_Avoid_: alias, private email
