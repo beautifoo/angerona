@@ -26,6 +26,8 @@
   - `Push anyway? [y/N]`
   - `angerona not installed, push not checked`
   - `repos already public are not rechecked; run angerona scan in each`
+  - `run: gh auth refresh -h github.com -s user, then angerona setup again`
+  - `gh not available: only the emails in your git config are known`
 
 ## Review Focus
 
@@ -67,7 +69,8 @@ Remove everything that belongs to the term-list scope so later tasks start from 
 
 **Interfaces:**
 - Produces:
-  - `pub struct Machine { pub home: Option<PathBuf>, pub login: Option<String>, pub hosts: Vec<String>, pub env_emails: Vec<String>, pub config_files: Vec<PathBuf> }`
+  - `pub struct Machine { pub home: Option<PathBuf>, pub login: Option<String>, pub hosts: Vec<String>, pub env_emails: Vec<String>, pub config_files: Vec<PathBuf>, pub emails_file: Option<PathBuf> }`; `emails_file` = `emails_path()` when it exists.
+  - `pub fn emails_path() -> Option<PathBuf>`: `$XDG_CONFIG_HOME/angerona/emails` when `XDG_CONFIG_HOME` is absolute, else `~/.config/angerona/emails` (Task 9 writes it). `discover` reads it one address per line (blank lines and `#` lines skipped), "where" = `GitHub account (angerona setup)`.
   - `pub fn machine() -> Machine`: `home` = `realpath($HOME)`; `login` = `$USER`, else `$LOGNAME`, else `home`'s last component; `hosts` = output of `hostname`, plus on macOS `scutil --get HostName` and `scutil --get LocalHostName` (each trimmed, failures skipped; ComputerName never read); debug builds take `ANGERONA_TEST_HOSTS` instead when set; `env_emails` = `EMAIL`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_EMAIL` when set; `config_files` = `GIT_CONFIG_SYSTEM` or `/etc/gitconfig` (skipped when `GIT_CONFIG_NOSYSTEM` is set), `GIT_CONFIG_GLOBAL` when set, else `$XDG_CONFIG_HOME/git/config` (or `~/.config/git/config`) and `~/.gitconfig`.
   - `pub struct Details { pub emails: Vec<(String, String)>, pub home: Option<String>, pub raw_login: Option<String>, pub login: Option<String>, pub hosts: Vec<String>, pub weak: Vec<String> }`: `emails` are `(address, where found)`, lowercased, noreply ones dropped, deduplicated; `home` as a string; `raw_login` is the login as found (the home-path rule uses it even when weak); `login` is `None` when weak; `hosts` normalized; `weak` holds one human line per login or host left out by the floor.
   - `pub fn discover(m: &Machine) -> Details`
@@ -85,6 +88,7 @@ Read config files with `gix::config::File::from_path_no_includes(path, gix::conf
   - `follows_includes_whatever_the_condition`: in a temp dir, `global` holds `[user] email = 1+me@users.noreply.github.com` and `[includeIf "gitdir:~/work/"] path = work.inc`; `work.inc` holds `[user] email = Me@Work.Example` and `[include] path = nested.inc`; `nested.inc` holds `[user] email = other@corp.example`. `discover` with `config_files = [global]` gives emails `me@work.example` and `other@corp.example`, each with its file path as "where".
   - `include_loops_end`: two files including each other give each email once.
   - `env_emails_count`: `env_emails = ["Mine@Home.Example"]` gives `mine@home.example`.
+  - `emails_file_counts`: a file with `# from GitHub\nMe@Personal.Example\n\n` gives `me@personal.example` with where `GitHub account (angerona setup)`.
   - `hosts_are_normalized_and_floored`: `normalize_host("Jdoes-Laptop.local") == Some("jdoes-laptop")`, `normalize_host("box.lan") == None` (3 chars), `normalize_host("MacBook-Pro") == None`, `normalize_host("localhost") == None`.
   - `weak_logins_are_left_out`: `discover` with `login = Some("dev")` gives `login == None` and one `weak` line containing `dev`; with `"jdoe"` gives `Some("jdoe")`.
   - `discovers_nothing_without_home_or_config`: `Machine` with every field empty gives empty `Details`, no panic.
@@ -279,13 +283,16 @@ Rules, all case-insensitive, built as one `regex::Regex` per kind with the detai
 - Modify: `src/main.rs`, `test/angerona.bats`
 
 **Interfaces:**
-- Produces: `pub const HOOK_COMMAND: &str = "f() { if command -v angerona >/dev/null 2>&1; then angerona check-push \"$@\"; else echo 'angerona not installed, push not checked' >&2; fi; }; f";` (git appends ` "$@"` to a config hook's command, so the trailing `f` receives the remote and URL). `pub fn run() -> i32`: `git config set --global hook.angerona.event pre-push` and `git config set --global hook.angerona.command "<HOOK_COMMAND>"` through `std::process::Command` (git follows a symlinked config file and a symlinked directory); prints what it set; exit 0, or 1 with git's error.
+- Produces: `pub const HOOK_COMMAND: &str = "f() { if command -v angerona >/dev/null 2>&1; then angerona check-push \"$@\"; else echo 'angerona not installed, push not checked' >&2; fi; }; f";` (git appends ` "$@"` to a config hook's command, so the trailing `f` receives the remote and URL). `pub fn run() -> i32`: `git config set --global hook.angerona.event pre-push` and `git config set --global hook.angerona.command "<HOOK_COMMAND>"` through `std::process::Command` (git follows a symlinked config file and a symlinked directory); prints what it set. Then `gh api user/emails --jq '.[].email'`: success → lowercase, drop noreply (`details::is_noreply`), write to `details::emails_path()` (create the directory 700, the file 600, replace atomically via a temp file in the same directory and rename), print how many were saved; `gh` not on PATH or not logged in → print `gh not available: only the emails in your git config are known` and leave any existing file; output mentions the `user` scope (HTTP 404 with "needs the \"user\" scope") → print `run: gh auth refresh -h github.com -s user, then angerona setup again`. Exit 0 when the hook was written (the gh part never fails setup), 1 with git's error otherwise.
 
 - [ ] **Step 1: Write the failing bats tests:**
   - `setup writes the hook into the global config` (`git config --global hook.angerona.command` equals the constant; `hook.angerona.event` is `pre-push`; no `/Users/` or `$HOME` text in the global file)
   - `setup writes through a symlinked config` (`GIT_CONFIG_GLOBAL` points at a symlink; after setup it is still a symlink and the target holds the lines)
   - `the hook line runs angerona from PATH` (with `PATH` containing a dir with `angerona` → `$AG`, a push with a home path is refused)
   - `without angerona the push passes with a warning` (PATH without it; push exit 0, output has `angerona not installed, push not checked`)
+  - `setup saves my GitHub emails privately` (a fake `gh` script first on PATH prints `Me@Personal.Example` and `1+me@users.noreply.github.com`; the emails file holds only `me@personal.example`, mode `600`; a later push adding that address to a file is refused)
+  - `setup asks for the user scope` (fake `gh` exits 1 printing `This API operation needs the "user" scope`; output has `gh auth refresh -h github.com -s user`; exit 0)
+  - `setup without gh still writes the hook` (no `gh` on PATH; output has `gh not available`; exit 0)
 - [ ] **Step 2:** fails; **Step 3:** implement; **Step 4:** passes, global check.
 - [ ] **Step 5:** Commit `feat: Write the hook with angerona setup`.
 
@@ -322,10 +329,11 @@ Rules, all case-insensitive, built as one `regex::Regex` per kind with the detai
   5. `hook.angerona.command` equals `HOOK_COMMAND` and `hook.angerona.event` is `pre-push`; fix `angerona setup`.
   6. `env PATH=/usr/bin:/bin:/usr/sbin:/sbin sh -c 'command -v angerona'` finds it (the PATH apps started from the Dock give hooks); else a note: `apps started from the Dock won't find angerona, so their pushes print 'not checked'; link it into /usr/local/bin`.
   7. `user.signingkey` does not look like an email (contains `@`); fix: set it to the key fingerprint.
-  8. Every line of `Details.weak` as a note (weak login or generic machine name; suggest `sudo scutil --set HostName <name>` on macOS).
+  8. The emails file exists and holds the same non-noreply addresses `gh api user/emails --jq '.[].email'` returns now; missing or different → problem with fix `angerona setup`; gh unavailable or lacking the scope → a note, not a problem.
+  9. Every line of `Details.weak` as a note (weak login or generic machine name; suggest `sudo scutil --set HostName <name>` on macOS).
   Then lists the emails found with where, a note `turn on your forge's email privacy setting (GitHub: Keep my email addresses private), since commits made on the website skip the hook`, and the last line `repos already public are not rechecked; run angerona scan in each`. Exit 0 with no problems, 1 otherwise (notes alone don't fail).
 
-- [ ] **Step 1: Write the failing bats tests:** `doctor passes a good setup`, `doctor flags a missing useConfigOnly`, `doctor flags a real global email`, `doctor flags a signing key set as an email`, `doctor flags a missing hook`, `doctor notes a weak login` (`USER=dev`), `doctor with no identity says how to set one` (no `user.email`, `HOME` set to an empty dir), `doctor ends with the scan reminder`.
+- [ ] **Step 1: Write the failing bats tests:** `doctor passes a good setup`, `doctor flags a stale emails file` (fake `gh` returns an address the file lacks), `doctor flags a missing useConfigOnly`, `doctor flags a real global email`, `doctor flags a signing key set as an email`, `doctor flags a missing hook`, `doctor notes a weak login` (`USER=dev`), `doctor with no identity says how to set one` (no `user.email`, `HOME` set to an empty dir), `doctor ends with the scan reminder`.
 - [ ] **Step 2:** fails; **Step 3:** implement; **Step 4:** passes, global check.
 - [ ] **Step 5:** Commit `feat: Check the git settings that keep you out`.
 

@@ -22,7 +22,7 @@ It must be useful to other developers, not only the owner. The first version pro
 
 - CI checks for other projects, and a GitHub Action. (An Action comes later.)
 - Windows paths and builds.
-- A user-maintained list of extra details (old usernames, a real email set nowhere). The old angerona was that list.
+- A hand-written list of extra details (old usernames, other emails). The old angerona was that list. Real emails come from the GitHub account instead.
 - Release files and tarballs, paths inside shipped binaries.
 - Agent and MCP checks.
 - Rewriting history. `scan` reports; `git filter-repo` fixes.
@@ -41,7 +41,7 @@ See `GLOSSARY.md`: **personal detail**, **outgoing commit**, **unpublished commi
 
 ## What counts as you
 
-- **Emails:** every `user.email` in every git config file: system, global, and every file reached through `include` and `includeIf`, *whatever the condition* (so the work email set only under `~/Developer/work/` is known from a personal repo too), following nested includes, relative paths resolved from the including file. Plus the `EMAIL`, `GIT_AUTHOR_EMAIL` and `GIT_COMMITTER_EMAIL` environment variables. Noreply addresses are never personal details.
+- **Emails:** every `user.email` in every git config file: system, global, and every file reached through `include` and `includeIf`, *whatever the condition* (so the work email set only under `~/Developer/work/` is known from a personal repo too), following nested includes, relative paths resolved from the including file. Plus the `EMAIL`, `GIT_AUTHOR_EMAIL` and `GIT_COMMITTER_EMAIL` environment variables. Plus **your GitHub account's emails**, which `angerona setup` reads once with `gh api user/emails` and keeps in `~/.config/angerona/emails` (or under `$XDG_CONFIG_HOME`), mode 600, one address per line, outside every repo and outside a dotfiles-linked `~/.config/git`: this is how a real personal email that no git config holds (you commit with the noreply address) is known at all. Noreply addresses are never personal details.
 - **Home path:** `realpath($HOME)` and the `/Users/<login>` or `/home/<login>` forms, matched case-insensitively and in escaped forms: `\/` (JSON), `\` and `\\`, `%2F`, `file:///`, `~<login>/`. No full decoding step: one pattern.
 - **Login name:** only right after a home root (`Users`, `home`, `~`), in the `<login>.xcuserdatad` form, in `<login>@<hostname>` text (with or without a domain, the macOS shell prompt form), and **as a branch-name prefix** (`<login>/feature`): the owner decided this is a leak. Never as a bare word or a lone path part (`/dev/null` must not match a `dev` login). Logins shorter than 3 characters or generic (root, admin, user, dev, test, pi, ubuntu, runner, and the like) get the same floor as machine names: not matched by the login rules (the home path itself still is), and `doctor` says so.
 - **Machine name:** every form macOS has (`scutil` HostName and LocalHostName, plus `hostname`), case-insensitive, `.local` and domain stripped. ComputerName is skipped (spaces, full name). Matched only as `<login>@<host>` or as the full domain label after `@` (`x@host.local`), never as any label of any domain. Names shorter than 4 characters, `localhost`, and generic names (Mac, ubuntu, raspberrypi, and the like) are not matched; `doctor` says so and suggests setting a unique name.
@@ -58,6 +58,8 @@ An address is noreply when its local part is `noreply` or `no-reply`, or its dom
 Writes the pre-push hook into the global git config (git ≥ 2.54 config-based hooks: `hook.angerona.event = pre-push`, `hook.angerona.command = …`). The command line holds no home path (bare `angerona`, or `~/...`; git runs hook commands through `sh`, so `~` expands even under a GUI app's launchd PATH). When `angerona` is not on PATH, the line prints `angerona not installed, push not checked` and exits 0: the global config is often shared through dotfiles to machines without angerona.
 
 Setup never sets `parallel = true`. If the global config file is a symlink (dotfiles), setup writes through it rather than replacing it.
+
+Setup also reads your GitHub account's emails with `gh api user/emails` and writes the non-noreply ones to the emails file (mode 600). When `gh` is missing or not logged in, it says so and carries on with the config emails only. When the token lacks the `user` scope, it prints `run: gh auth refresh -h github.com -s user, then angerona setup again`; angerona never changes your gh login itself. The hook reads only the file: no `gh` or network call per push for this.
 
 ### Pre-push hook
 
@@ -98,6 +100,7 @@ Checks and prints what to fix:
 - `user.useConfigOnly = true` (stops git guessing `login@host`).
 - An identity per host via `includeIf` (gitdir or `hasconfig:remote.*.url`).
 - The global `user.email` is a noreply address; lists every email angerona found and where.
+- The emails file exists and matches what `gh api user/emails` returns now; when it differs or is missing, says to run `angerona setup` again (skipped with a note when `gh` can't answer).
 - The hook is installed, the binary runs under a launchd-like PATH, git is ≥ 2.54.
 - `user.signingkey` (or gpg's default key) is not an email address (a GPG key given as an email embeds that email in every signature); suggest the fingerprint.
 - The machine name is unique enough to match (see above).
@@ -126,6 +129,7 @@ Checks and prints what to fix:
 - "Can't tell" → ask on every push, only for hosts that can never be probed; no terminal → check.
 - Your emails flagged anywhere in any outgoing commit; others' non-noreply emails only in commit identities, and only as committer of an unpublished commit or tagger (so applied patches stay quiet). Same in `scan`.
 - No way to allow a personal detail on purpose in a repo: only added lines are checked, so answering y is enough.
+- Your real emails come from your GitHub account (`gh api user/emails`), read once by `setup` into a private file; the owner adds the `user` scope to gh himself when setup asks. (Reopened 2026-11-18 after the email rule narrowed: without it a personal email set in no git config would pass as an author, in trailers and in files.)
 - The login as a branch prefix is a personal detail.
 - Added lines only in the hook; whole history and files in `scan`.
 - On a finding: `Push anyway? [y/N]`; without a terminal, block and point to `--no-verify`.
