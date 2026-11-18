@@ -73,7 +73,7 @@ impl Matcher {
         }
         if let Some(l) = &d.raw_login {
             let l = regex::escape(l);
-            home.push(format!("((?:Users|home){SEP}+{l}){PATH_END}"));
+            home.push(format!("({SEP}?(?:Users|home){SEP}+{l}){PATH_END}"));
             home.push(format!("(~{l}){SEP}"));
         }
         // Matched as written, so an apostrophe or accent in the address still counts. The
@@ -224,6 +224,11 @@ mod tests {
                 .map(|_| vec![Kind::HomePath])
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn a_home_path_is_quoted_from_its_root() {
+        assert_eq!(matcher().find("cd /home/jdoe/x")[0].text, "/home/jdoe");
     }
 
     #[test]
