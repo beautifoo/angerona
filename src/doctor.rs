@@ -72,7 +72,7 @@ pub fn run() -> i32 {
         }
         Some(_) => {}
         None => {
-            notes += "no global user.email: git asks in each repo; set one per host in an includeIf file as <id>+<user>@users.noreply.github.com\n";
+            notes += "no global user.email: with useConfigOnly, git refuses to commit in a repo that sets none; set one per host in an includeIf file as <id>+<user>@users.noreply.github.com\n";
         }
     }
 
