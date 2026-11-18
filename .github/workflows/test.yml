@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 
-# The guard's own tests, against a fake term list.
+# angerona's own tests.
 jobs:
   bats:
     strategy:
@@ -25,12 +25,3 @@ jobs:
       - name: git is 2.54 or later
         run: git --version | awk '{split($3, v, "."); exit !(v[1] > 2 || (v[1] == 2 && v[2] >= 54))}'
       - run: AG=$PWD/target/release/angerona bats test/
-      # The static curl must come with TLS: the push check asks GitHub over https.
-      - name: The release build speaks https
-        if: runner.os == 'Linux'
-        run: |
-          mkdir -p "$RUNNER_TEMP/config/angerona" && echo zorblax >"$RUNNER_TEMP/config/angerona/terms.txt"
-          git init -q "$RUNNER_TEMP/h" && cd "$RUNNER_TEMP/h" && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m x
-          printf 'refs/heads/x %s refs/heads/x %040d\n' "$(git rev-parse HEAD)" 0 |
-            XDG_CONFIG_HOME=$RUNNER_TEMP/config "$GITHUB_WORKSPACE/target/release/angerona" check-push origin https://github.com/rust-lang/rust.git 2>err
-          ! grep -q "can't ask" err

@@ -1,6 +1,3 @@
-use crate::list::Matcher;
-use std::collections::HashSet;
-
 // What an item is, which says where a hit in it is.
 pub enum Label {
     // Lines of text, each hit at "<prefix>line N".
@@ -73,94 +70,29 @@ pub fn name_item(what: &'static str, name: String) -> Item {
     }
 }
 
-// Each hit as "<where>: <term>", once, in item order then by position.
-pub fn hits(m: &Matcher, items: &[Item]) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut seen = HashSet::new();
-    for item in items {
-        for (line, term) in m.find(&String::from_utf8_lossy(&item.bytes)) {
-            let place = match &item.label {
-                Label::Lines(prefix) => format!("{prefix}line {line}"),
-                Label::Blob(path) => format!("{path}:{line}"),
-                Label::Name(what, name) => format!("{what} {name}"),
-                Label::Plain(place) => place.clone(),
-            };
-            let said = format!("{place}: {term}");
-            if seen.insert(said.clone()) {
-                out.push(said);
-            }
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn m(t: &[&str]) -> Matcher {
-        Matcher::new(t.iter().map(|s| s.to_string()).collect())
-    }
-
-    #[test]
-    fn matches_around_invalid_utf8() {
-        let item = Item {
-            label: Label::Blob("a".into()),
-            bytes: b"caf\xe9\nglobex\xff\n".to_vec(),
-        };
-        assert_eq!(hits(&m(&["globex"]), &[item]), vec!["a:2: globex"]);
-    }
-
-    #[test]
-    fn formats_each_label() {
-        let mm = m(&["globex", "Acme Widgets"]);
-        let it = |label, s: &str| Item {
-            label,
-            bytes: s.as_bytes().to_vec(),
-        };
-        assert_eq!(
-            hits(
-                &mm,
-                &[
-                    it(Label::Lines(""), "we sell ACME WIDGETS here"),
-                    it(Label::Lines("message "), "fix\n\nfor the globex team\n"),
-                    it(
-                        Label::Blob("a.txt".into()),
-                        "one\ntwo\nthree globex globex\n"
-                    ),
-                    it(Label::Name("file", "globex.txt".into()), "globex.txt"),
-                    it(Label::Plain("identity".into()), "T <me@globex.example>"),
-                ]
-            ),
-            vec![
-                "line 1: Acme Widgets",
-                "message line 3: globex",
-                "a.txt:3: globex",
-                "file globex.txt: globex",
-                "identity: globex"
-            ]
-        );
-    }
-
     #[test]
     fn text_blob_is_read_whole() {
-        let it = blob_item("a.txt", b"one\nglobex\n");
+        let it = blob_item("a.txt", b"one\nzebra\n");
         assert!(matches!(&it.label, Label::Blob(p) if p == "a.txt"));
-        assert_eq!(it.bytes, b"one\nglobex\n");
+        assert_eq!(it.bytes, b"one\nzebra\n");
     }
 
     #[test]
     fn binary_blob_keeps_only_long_readable_runs() {
         let mut b = b"\x00\x01ab\x00".to_vec();
-        b.extend(b"Author: globex example inc\x00short globex\x00");
+        b.extend(b"Author: zebra example inc\x00short zebra\x00");
         let it = blob_item("img.png", &b);
         assert!(matches!(&it.label, Label::Plain(l) if l == "binary img.png"));
-        assert_eq!(it.bytes, b"Author: globex example inc\n");
+        assert_eq!(it.bytes, b"Author: zebra example inc\n");
     }
 
     #[test]
     fn utf16_with_a_byte_order_mark_is_text() {
-        let units: Vec<u16> = "one\nglobex\n".encode_utf16().collect();
+        let units: Vec<u16> = "one\nzebra\n".encode_utf16().collect();
         let le = [
             &[0xff, 0xfe][..],
             &units
@@ -180,21 +112,21 @@ mod tests {
         for b in [le, be] {
             let it = blob_item("t.txt", &b);
             assert!(matches!(&it.label, Label::Blob(p) if p == "t.txt"));
-            assert_eq!(it.bytes, b"one\nglobex\n");
+            assert_eq!(it.bytes, b"one\nzebra\n");
         }
     }
 
     #[test]
     fn a_byte_order_mark_without_a_nul_is_still_text() {
-        let it = blob_item("t.txt", b"\xff\xfeglobex\n");
+        let it = blob_item("t.txt", b"\xff\xfezebra\n");
         assert!(matches!(&it.label, Label::Blob(p) if p == "t.txt"));
-        assert_eq!(it.bytes, b"\xff\xfeglobex\n");
+        assert_eq!(it.bytes, b"\xff\xfezebra\n");
     }
 
     #[test]
     fn nul_after_8000_bytes_is_still_text() {
         let mut b = vec![b'a'; 8000];
-        b.extend(b"\0globex");
+        b.extend(b"\0zebra");
         assert!(matches!(blob_item("t", &b).label, Label::Blob(_)));
     }
 }

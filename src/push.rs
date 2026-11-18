@@ -1,15 +1,11 @@
-use crate::scan::{Item, Label, blob_item, name_item};
 use gix::{
     ObjectId,
-    objs::{CommitRefIter, Kind, TagRefIter, TreeRefIter},
+    objs::{CommitRefIter, Kind, TagRefIter},
     progress::Discard,
     protocol::handshake::Ref,
     remote::{Direction, fetch::Tags, ref_map},
 };
-use std::{
-    collections::{BTreeSet, HashSet},
-    error::Error,
-};
+use std::collections::HashSet;
 
 pub struct RefLine {
     pub local_ref: String,
@@ -167,115 +163,6 @@ fn parents(
         .collect()
 }
 
-// What the push sends, as `git rev-list --objects <tips> ^<held>` lists it,
-// read as stored: the ref names; each tag and commit; each file version the
-// remote lacks; then every name in each new root tree, the remote's files and
-// submodules included, since a rename sends only a tree. gix ignores grafts,
-// so a repo with them must be refused before this.
-// ponytail: every item is held in memory until the scan, so a first push
-// needs about as much as its history's files; scan each item as it is built
-// if that proves too much.
-pub fn items(
-    repo: &gix::Repository,
-    refs: &[RefLine],
-    held: &[ObjectId],
-) -> Result<Vec<Item>, Box<dyn Error>> {
-    let hash = repo.object_hash();
-    let shallow: HashSet<ObjectId> = repo
-        .shallow_commits()?
-        .map(|ids| ids.iter().copied().collect())
-        .unwrap_or_default();
-    let remote = remote_commits(repo, held, &shallow);
-
-    let mut items = Vec::new();
-    for r in refs {
-        items.push(name_item("ref", r.local_ref.clone()));
-        items.push(name_item("ref", r.remote_ref.clone()));
-    }
-    // The new commits, from the tips, peeling tags. The held commits met on the
-    // way are the boundary, and the trees or blobs the tips peel to are roots.
-    let mut new = HashSet::new();
-    let mut roots = Vec::new();
-    let mut boundary = Vec::new();
-    let mut stack = Vec::new();
-    for r in refs {
-        stack.push(ObjectId::from_hex(r.sha.as_bytes())?);
-    }
-    while let Some(id) = stack.pop() {
-        if remote.contains(&id) || !new.insert(id) {
-            continue;
-        }
-        let o = read(repo, id)?;
-        match o.kind {
-            Kind::Tag => {
-                stack.push(TagRefIter::from_bytes(&o.data, hash).target_id()?);
-                items.push(Item {
-                    label: Label::Plain(format!("tag {id}")),
-                    bytes: o.data,
-                });
-            }
-            Kind::Commit => {
-                roots.push(CommitRefIter::from_bytes(&o.data, hash).tree_id()?);
-                for p in parents(id, &o.data, &shallow, hash) {
-                    if remote.contains(&p) {
-                        boundary.push(p);
-                    } else {
-                        stack.push(p);
-                    }
-                }
-                items.push(Item {
-                    label: Label::Plain(format!("commit {id}")),
-                    bytes: strip_signature(&o.data),
-                });
-            }
-            Kind::Tree | Kind::Blob => roots.push(id),
-        }
-    }
-
-    // Each new root tree: every blob or symlink not seen yet, as git skips a
-    // seen tree whole, and every name. A name under a seen tree is listed
-    // once per (tree, path), which keeps a long history's walk short. A
-    // gitlink is a commit in another repo: its name only.
-    let mut seen = remote_files(repo, boundary);
-    let mut names = BTreeSet::new();
-    let mut listed = HashSet::new();
-    for root in roots {
-        if !seen.insert(root) {
-            continue;
-        }
-        // Each tree to read, with its path, and whether it is fresh: neither
-        // it nor a tree above it seen before. Only a fresh tree's files are read.
-        let mut stack = vec![(root, String::new(), true)];
-        while let Some((id, dir, fresh)) = stack.pop() {
-            let o = read(repo, id)?;
-            if o.kind == Kind::Blob {
-                // A tag can name a blob, which then has no path.
-                items.push(blob_item(&id.to_string(), &o.data));
-                continue;
-            }
-            for e in TreeRefIter::from_bytes(&o.data, hash) {
-                let e = e?;
-                let oid = e.oid.to_owned();
-                let path = format!("{dir}{}", e.filename);
-                // seen.insert marks oid as seen, and says whether it is new.
-                if e.mode.is_tree() {
-                    if listed.insert((oid, path.clone())) {
-                        let fresh_tree = if fresh { seen.insert(oid) } else { false };
-                        stack.push((oid, format!("{path}/"), fresh_tree));
-                    }
-                } else if !e.mode.is_commit() && fresh && seen.insert(oid) {
-                    items.push(blob_item(&path, &read(repo, oid)?.data));
-                }
-                names.insert(path);
-            }
-        }
-    }
-    for path in names {
-        items.push(name_item("file", path));
-    }
-    Ok(items)
-}
-
 // Every commit the remote holds that this repo has. What can't be read is
 // left out, as git does, which scans more, never less.
 // ponytail: walks the remote's whole history; a date-ordered walk that stops
@@ -307,35 +194,6 @@ fn remote_commits(
         }
     }
     remote
-}
-
-// The remote holds every tree and blob of the boundary commits: git's own
-// approximation of what it holds, which errs toward scanning more.
-fn remote_files(repo: &gix::Repository, boundary: Vec<ObjectId>) -> HashSet<ObjectId> {
-    let hash = repo.object_hash();
-    let mut seen = HashSet::new();
-    let mut stack = Vec::new();
-    for id in boundary {
-        if let Ok(o) = read(repo, id)
-            && let Ok(tree) = CommitRefIter::from_bytes(&o.data, hash).tree_id()
-        {
-            stack.push(tree);
-        }
-    }
-    while let Some(id) = stack.pop() {
-        if !seen.insert(id) {
-            continue;
-        }
-        let Ok(o) = read(repo, id) else { continue };
-        for e in TreeRefIter::from_bytes(&o.data, hash).flatten() {
-            if e.mode.is_tree() {
-                stack.push(e.oid.to_owned());
-            } else if e.mode.is_blob_or_symlink() {
-                seen.insert(e.oid.to_owned());
-            }
-        }
-    }
-    seen
 }
 
 #[cfg(test)]
