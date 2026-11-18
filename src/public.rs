@@ -8,6 +8,8 @@ use gix::{ObjectId, url::Scheme};
 
 use crate::push::without_credentials;
 
+const ADVERTISEMENT: &str = "application/x-git-upload-pack-advertisement";
+
 #[derive(Debug, PartialEq)]
 pub enum Visibility {
     Public(Vec<ObjectId>),
@@ -46,7 +48,7 @@ pub fn is_local(url: &str) -> bool {
 // reach, so the probe can ask without any login.
 pub fn https_form(url: &str, resolve: &dyn Fn(&str) -> Option<String>) -> Option<String> {
     let parsed = gix::url::parse(url).ok()?;
-    let host = parsed.host()?;
+    let host = parsed.host_argument_safe()?;
     let path = parsed.path.to_string();
     let path = path.trim_start_matches('/');
     match parsed.scheme {
@@ -68,7 +70,7 @@ pub fn https_form(url: &str, resolve: &dyn Fn(&str) -> Option<String>) -> Option
 // The hostname ssh would connect to for this alias.
 fn ssh_hostname(host: &str) -> Option<String> {
     let out = Command::new("ssh")
-        .args(["-G", host])
+        .args(["-G", "--", host])
         .stdin(Stdio::null())
         .output()
         .ok()?;
@@ -86,9 +88,7 @@ pub fn classify(a: Answer) -> Visibility {
             status: 200,
             content_type,
             body,
-        } if content_type.starts_with("application/x-git-upload-pack-advertisement") => {
-            Visibility::Public(advertised(&body))
-        }
+        } if content_type.starts_with(ADVERTISEMENT) => Visibility::Public(advertised(&body)),
         Answer::Http {
             status: 401 | 403 | 404,
             ..
@@ -140,6 +140,8 @@ pub fn advertised(body: &[u8]) -> Vec<ObjectId> {
 // the URL without its user and password.
 fn get(url: &str) -> Answer {
     let mut body = Vec::new();
+    let mut status = 0;
+    let mut content_type = String::new();
     let mut easy = Easy::new();
     let result = (|| {
         easy.url(&format!("{url}/info/refs?service=git-upload-pack"))?;
@@ -148,6 +150,23 @@ fn get(url: &str) -> Answer {
         easy.timeout(Duration::from_secs(5))?;
         easy.netrc(NetRc::Ignored)?;
         let mut transfer = easy.transfer();
+        // Each redirect sends its own headers, so the last ones win.
+        transfer.header_function(|line| {
+            let line = String::from_utf8_lossy(line);
+            if line.starts_with("HTTP/") {
+                status = line
+                    .split(' ')
+                    .nth(1)
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
+                content_type.clear();
+            } else if let Some((name, value)) = line.split_once(':')
+                && name.eq_ignore_ascii_case("content-type")
+            {
+                content_type = value.trim().to_string();
+            }
+            true
+        })?;
         transfer.write_function(|data| {
             body.extend_from_slice(data);
             Ok(data.len())
@@ -156,16 +175,11 @@ fn get(url: &str) -> Answer {
     })();
     match result {
         Ok(()) => Answer::Http {
-            status: easy.response_code().unwrap_or(0),
-            content_type: easy
-                .content_type()
-                .ok()
-                .flatten()
-                .unwrap_or_default()
-                .to_string(),
+            status,
+            content_type,
             body,
         },
-        Err(e) if e.is_operation_timedout() => Answer::Timeout,
+        Err(e) if e.is_operation_timedout() => timed_out(status, &content_type),
         Err(e) if e.is_couldnt_resolve_host() => Answer::Dns,
         Err(e) if e.is_couldnt_connect() => Answer::Refused,
         Err(e)
@@ -182,12 +196,41 @@ fn get(url: &str) -> Answer {
     }
 }
 
+// A timeout after the advertisement's headers still means the repo is
+// public; the body just did not arrive, so the caller lists the refs
+// another way.
+fn timed_out(status: u32, content_type: &str) -> Answer {
+    if status == 200 && content_type.starts_with(ADVERTISEMENT) {
+        Answer::Http {
+            status,
+            content_type: content_type.to_string(),
+            body: Vec::new(),
+        }
+    } else {
+        Answer::Timeout
+    }
+}
+
+// The four answers a test can ask for.
+fn forced(value: &str) -> Option<Visibility> {
+    match value {
+        "public" => Some(Visibility::Public(Vec::new())),
+        "private" => Some(Visibility::Private),
+        "unprobeable" => Some(Visibility::Unprobeable),
+        "passing" => Some(Visibility::Passing),
+        _ => None,
+    }
+}
+
 // Debug builds let the tests say what a remote is, so bats can push to
 // local bare repos as if they were public.
 pub fn probe(url: &str) -> Visibility {
     #[cfg(debug_assertions)]
-    if std::env::var("ANGERONA_TEST_VISIBILITY").as_deref() == Ok("public") {
-        return Visibility::Public(Vec::new());
+    if let Some(v) = std::env::var("ANGERONA_TEST_VISIBILITY")
+        .ok()
+        .and_then(|v| forced(&v))
+    {
+        return v;
     }
     if is_local(url) {
         return Visibility::Private;
@@ -205,7 +248,7 @@ mod tests {
     const A: &str = "1111111111111111111111111111111111111111";
     const B: &str = "2222222222222222222222222222222222222222";
     const C: &str = "3333333333333333333333333333333333333333";
-    const ADVERT: &str = "application/x-git-upload-pack-advertisement";
+    const ADVERT: &str = ADVERTISEMENT;
 
     fn resolve(h: &str) -> Option<String> {
         Some(if h == "github-work" { "github.com" } else { h }.to_string())
@@ -390,6 +433,53 @@ mod tests {
         assert_eq!(advertised(body.as_bytes()), ids);
     }
 
+    #[test]
+    fn https_form_refuses_an_option_looking_host() {
+        assert_eq!(form("ssh://-oProxyCommand=x/r"), None);
+    }
+
+    #[test]
+    fn seam_public() {
+        assert_eq!(forced("public"), Some(Visibility::Public(Vec::new())));
+    }
+
+    #[test]
+    fn seam_private() {
+        assert_eq!(forced("private"), Some(Visibility::Private));
+    }
+
+    #[test]
+    fn seam_unprobeable() {
+        assert_eq!(forced("unprobeable"), Some(Visibility::Unprobeable));
+    }
+
+    #[test]
+    fn seam_passing() {
+        assert_eq!(forced("passing"), Some(Visibility::Passing));
+    }
+
+    #[test]
+    fn seam_ignores_other_values() {
+        assert_eq!(forced("whatever"), None);
+    }
+
+    #[test]
+    fn timeout_after_advertisement_headers_is_public() {
+        assert_eq!(
+            classify(timed_out(200, ADVERT)),
+            Visibility::Public(Vec::new())
+        );
+    }
+
+    #[test]
+    fn timeout_after_other_headers_is_passing() {
+        assert_eq!(classify(timed_out(200, "text/html")), Visibility::Passing);
+    }
+
+    #[test]
+    fn timeout_before_headers_is_passing() {
+        assert_eq!(classify(timed_out(0, "")), Visibility::Passing);
+    }
     #[test]
     #[ignore]
     fn network_public() {
