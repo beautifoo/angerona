@@ -1,4 +1,6 @@
 #[allow(dead_code)]
+mod added;
+#[allow(dead_code)]
 mod details;
 mod doctor;
 #[allow(dead_code)]
