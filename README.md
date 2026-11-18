@@ -19,17 +19,11 @@ without a word. `angerona doctor` names each git on your PATH that would.
 
 ## Install
 
-With Homebrew:
-
-```sh
-brew install beautifoo/tap/angerona
-```
-
-Or from source:
-
 ```sh
 cargo install --git https://github.com/beautifoo/angerona
 ```
+
+Homebrew (`brew install beautifoo/tap/angerona`) comes with the first release.
 
 ## Set up
 
