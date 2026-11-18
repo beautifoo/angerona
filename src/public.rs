@@ -220,6 +220,7 @@ fn timed_out(status: u32, content_type: &str) -> Answer {
 }
 
 // The four answers a test can ask for.
+#[cfg(any(debug_assertions, test))]
 fn forced(value: &str) -> Option<Visibility> {
     match value {
         "public" => Some(Visibility::Public(Vec::new())),
