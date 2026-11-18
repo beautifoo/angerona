@@ -26,7 +26,7 @@
   - `Push anyway? [y/N]`
   - `angerona not installed, push not checked`
   - `repos already public are not rechecked; run angerona scan in each`
-  - `run: gh auth refresh -h github.com -s user, then angerona setup again`
+  - `run: gh auth refresh -h github.com -s user:email, then angerona setup again`
   - `gh not available: only the emails in your git config are known`
 
 ## Review Focus
@@ -283,7 +283,7 @@ Rules, all case-insensitive, built as one `regex::Regex` per kind with the detai
 - Modify: `src/main.rs`, `test/angerona.bats`
 
 **Interfaces:**
-- Produces: `pub const HOOK_COMMAND: &str = "f() { if command -v angerona >/dev/null 2>&1; then angerona check-push \"$@\"; else echo 'angerona not installed, push not checked' >&2; fi; }; f";` (git appends ` "$@"` to a config hook's command, so the trailing `f` receives the remote and URL). `pub fn run() -> i32`: `git config set --global hook.angerona.event pre-push` and `git config set --global hook.angerona.command "<HOOK_COMMAND>"` through `std::process::Command` (git follows a symlinked config file and a symlinked directory); prints what it set. Then `gh api user/emails --jq '.[].email'`: success → lowercase, drop noreply (`details::is_noreply`), write to `details::emails_path()` (create the directory 700, the file 600, replace atomically via a temp file in the same directory and rename), print how many were saved; `gh` not on PATH or not logged in → print `gh not available: only the emails in your git config are known` and leave any existing file; output mentions the `user` scope (HTTP 404 with "needs the \"user\" scope") → print `run: gh auth refresh -h github.com -s user, then angerona setup again`. Exit 0 when the hook was written (the gh part never fails setup), 1 with git's error otherwise.
+- Produces: `pub const HOOK_COMMAND: &str = "f() { if command -v angerona >/dev/null 2>&1; then angerona check-push \"$@\"; else echo 'angerona not installed, push not checked' >&2; fi; }; f";` (git appends ` "$@"` to a config hook's command, so the trailing `f` receives the remote and URL). `pub fn run() -> i32`: `git config set --global hook.angerona.event pre-push` and `git config set --global hook.angerona.command "<HOOK_COMMAND>"` through `std::process::Command` (git follows a symlinked config file and a symlinked directory); prints what it set. Then `gh api user/emails --jq '.[].email'`: success → lowercase, drop noreply (`details::is_noreply`), write to `details::emails_path()` (create the directory 700, the file 600, replace atomically via a temp file in the same directory and rename), print how many were saved; `gh` not on PATH or not logged in → print `gh not available: only the emails in your git config are known` and leave any existing file; output names a missing scope (gh prints `needs the "user" scope` for HTTP 404, since GitHub accepts `user` or `user:email`) → print `run: gh auth refresh -h github.com -s user:email, then angerona setup again` (never suggest the broader `user` scope). Exit 0 when the hook was written (the gh part never fails setup), 1 with git's error otherwise.
 
 - [ ] **Step 1: Write the failing bats tests:**
   - `setup writes the hook into the global config` (`git config --global hook.angerona.command` equals the constant; `hook.angerona.event` is `pre-push`; no `/Users/` or `$HOME` text in the global file)
@@ -291,7 +291,7 @@ Rules, all case-insensitive, built as one `regex::Regex` per kind with the detai
   - `the hook line runs angerona from PATH` (with `PATH` containing a dir with `angerona` → `$AG`, a push with a home path is refused)
   - `without angerona the push passes with a warning` (PATH without it; push exit 0, output has `angerona not installed, push not checked`)
   - `setup saves my GitHub emails privately` (a fake `gh` script first on PATH prints `Me@Personal.Example` and `1+me@users.noreply.github.com`; the emails file holds only `me@personal.example`, mode `600`; a later push adding that address to a file is refused)
-  - `setup asks for the user scope` (fake `gh` exits 1 printing `This API operation needs the "user" scope`; output has `gh auth refresh -h github.com -s user`; exit 0)
+  - `setup asks for the user:email scope` (fake `gh` exits 1 printing `This API operation needs the "user" scope`; output has `gh auth refresh -h github.com -s user:email`; exit 0)
   - `setup without gh still writes the hook` (no `gh` on PATH; output has `gh not available`; exit 0)
 - [ ] **Step 2:** fails; **Step 3:** implement; **Step 4:** passes, global check.
 - [ ] **Step 5:** Commit `feat: Write the hook with angerona setup`.

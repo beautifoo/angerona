@@ -59,7 +59,7 @@ Writes the pre-push hook into the global git config (git ≥ 2.54 config-based h
 
 Setup never sets `parallel = true`. If the global config file is a symlink (dotfiles), setup writes through it rather than replacing it.
 
-Setup also reads your GitHub account's emails with `gh api user/emails` and writes the non-noreply ones to the emails file (mode 600). When `gh` is missing or not logged in, it says so and carries on with the config emails only. When the token lacks the `user` scope, it prints `run: gh auth refresh -h github.com -s user, then angerona setup again`; angerona never changes your gh login itself. The hook reads only the file: no `gh` or network call per push for this.
+Setup also reads your GitHub account's emails with `gh api user/emails` and writes the non-noreply ones to the emails file (mode 600). When `gh` is missing or not logged in, it says so and carries on with the config emails only. When the token can't read the emails, it prints `run: gh auth refresh -h github.com -s user:email, then angerona setup again`. `user:email` only lets gh read your email addresses; GitHub also accepts the broader `user` scope (it can change your profile), which angerona never asks for. angerona never changes your gh login itself. The hook reads only the file: no `gh` or network call per push for this.
 
 ### Pre-push hook
 
@@ -129,7 +129,7 @@ Checks and prints what to fix:
 - "Can't tell" → ask on every push, only for hosts that can never be probed; no terminal → check.
 - Your emails flagged anywhere in any outgoing commit; others' non-noreply emails only in commit identities, and only as committer of an unpublished commit or tagger (so applied patches stay quiet). Same in `scan`.
 - No way to allow a personal detail on purpose in a repo: only added lines are checked, so answering y is enough.
-- Your real emails come from your GitHub account (`gh api user/emails`), read once by `setup` into a private file; the owner adds the `user` scope to gh himself when setup asks. (Reopened 2026-11-18 after the email rule narrowed: without it a personal email set in no git config would pass as an author, in trailers and in files.)
+- Your real emails come from your GitHub account (`gh api user/emails`), read once by `setup` into a private file; the owner adds the read-only `user:email` scope to gh himself when setup asks (GitHub's `X-Accepted-OAuth-Scopes` for `/user/emails` is `user, user:email`, checked 2026-11-18). (Reopened 2026-11-18 after the email rule narrowed: without it a personal email set in no git config would pass as an author, in trailers and in files.)
 - The login as a branch prefix is a personal detail.
 - Added lines only in the hook; whole history and files in `scan`.
 - On a finding: `Push anyway? [y/N]`; without a terminal, block and point to `--no-verify`.
