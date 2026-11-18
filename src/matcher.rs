@@ -73,8 +73,15 @@ impl Matcher {
             home.push(format!("(~{l}){SEP}"));
         }
         // Matched as written, so an apostrophe or accent in the address still counts. The
-        // whole-address check happens in whole_address, so no text is consumed here.
-        let emails: Vec<_> = d.emails.iter().map(|(e, _)| regex::escape(e)).collect();
+        // whole-address check happens in whole_address, so no text is consumed here. The
+        // longest go first, since the first that matches wins and a shorter one can start a
+        // longer one. A URL may carry the @ as %40.
+        let mut emails: Vec<_> = d.emails.iter().map(|(e, _)| e.as_str()).collect();
+        emails.sort_by_key(|e| std::cmp::Reverse(e.len()));
+        let emails: Vec<_> = emails
+            .iter()
+            .map(|e| regex::escape(e).replace('@', "(?:@|%40)"))
+            .collect();
         let emails = if emails.is_empty() {
             vec![]
         } else {
@@ -355,6 +362,24 @@ mod tests {
     fn email_with_an_accent_is_found() {
         let hits = with_emails(&["jöhn@example.com"]).find("mail jöhn@example.com now");
         assert_eq!(hits[0].text, "jöhn@example.com");
+    }
+
+    #[test]
+    fn a_shorter_own_email_does_not_hide_a_longer_one() {
+        let hits = with_emails(&["me@x.co", "me@x.com"]).find("me@x.com");
+        assert_eq!(
+            hits,
+            vec![Hit {
+                line: 1,
+                kind: Kind::Email,
+                text: "me@x.com".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn percent_encoded_email_is_found() {
+        assert_eq!(kinds("me%40home.example"), vec![Kind::Email]);
     }
 
     #[test]
