@@ -20,7 +20,7 @@ pub struct Hit {
 // Built once, then asked about every line, path, identity and message.
 pub struct Matcher {
     email_shape: Regex,
-    emails: Vec<String>,
+    email: Option<Regex>,
     home: Option<Regex>,
     login: Option<Regex>,
     host: Option<Regex>,
@@ -28,7 +28,8 @@ pub struct Matcher {
 }
 
 const LABEL_END: &str = "(?:[^A-Za-z0-9-]|$)";
-const PATH_END: &str = "(?:[^A-Za-z0-9._-]|$)";
+const PATH_END: &str = r"(?:[^A-Za-z0-9._-]|\.(?:[^A-Za-z0-9_-]|$)|$)";
+const SEP: &str = r"(?:/|\\{1,2}|%2F)";
 
 // The span of the first group that took part in the match.
 fn span(caps: &Captures) -> Option<(usize, usize)> {
@@ -52,11 +53,21 @@ impl Matcher {
         }
         if let Some(l) = &d.raw_login {
             let l = regex::escape(l);
-            home.push(format!(
-                r"((?:Users|home)(?:/|\\{{1,2}}|%2F)+{l}){PATH_END}"
-            ));
-            home.push(format!("(~{l})/"));
+            home.push(format!("((?:Users|home){SEP}+{l}){PATH_END}"));
+            home.push(format!("(~{l}){SEP}"));
         }
+        // Matched as written, so an apostrophe or accent in the address still counts. Whole
+        // address only: no name character before it (a % is a space in a URL) and no
+        // further domain label after it.
+        let emails: Vec<_> = d.emails.iter().map(|(e, _)| regex::escape(e)).collect();
+        let emails = if emails.is_empty() {
+            vec![]
+        } else {
+            let all = emails.join("|");
+            vec![format!(
+                r"(?:^|[^A-Za-z0-9._+-]|%[0-9A-Fa-f]{{2}})({all})(?:[^A-Za-z0-9.-]|\.(?:[^A-Za-z0-9-]|$)|$)"
+            )]
+        };
         let mut login = vec![];
         let mut host = vec![];
         let hosts: Vec<_> = d.hosts.iter().map(|h| regex::escape(h)).collect();
@@ -76,7 +87,7 @@ impl Matcher {
         let join = |parts: Vec<String>| (!parts.is_empty()).then(|| build(&parts.join("|")));
         Matcher {
             email_shape: build(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+"),
-            emails: d.emails.iter().map(|(e, _)| e.to_lowercase()).collect(),
+            email: join(emails),
             home: join(home),
             login: join(login),
             host: join(host),
@@ -93,12 +104,11 @@ impl Matcher {
             let s = m.as_str().trim_end_matches('.');
             if is_noreply(s) {
                 noreply.push((m.start(), m.start() + s.len()));
-            } else if self.emails.contains(&s.to_lowercase()) {
-                found.push((m.start(), m.start() + s.len(), Kind::Email));
             }
         }
         let unmasked = |(a, b): &(usize, usize)| !noreply.iter().any(|(x, y)| a < y && x < b);
         let rules = [
+            (&self.email, Kind::Email, false),
             (&self.home, Kind::HomePath, false),
             (&self.login, Kind::Login, true),
             (&self.host, Kind::Host, true),
@@ -277,5 +287,56 @@ mod tests {
         let text = String::from_utf8_lossy(b"caf\xe9\n/Users/jdoe\xff\n");
         let lines: Vec<_> = matcher().find(&text).iter().map(|h| h.line).collect();
         assert_eq!(lines, vec![2]);
+    }
+
+    fn with_emails(emails: &[&str]) -> Matcher {
+        Matcher::new(&Details {
+            emails: emails
+                .iter()
+                .map(|e| (e.to_string(), "test".into()))
+                .collect(),
+            home: None,
+            raw_login: None,
+            login: None,
+            hosts: vec![],
+            weak: vec![],
+        })
+    }
+
+    #[test]
+    fn email_with_an_apostrophe_is_found() {
+        let hits = with_emails(&["o'brien@example.com"]).find("o'brien@example.com");
+        assert_eq!(hits[0].text, "o'brien@example.com");
+    }
+
+    #[test]
+    fn email_with_an_accent_is_found() {
+        let hits = with_emails(&["jöhn@example.com"]).find("mail jöhn@example.com now");
+        assert_eq!(hits[0].text, "jöhn@example.com");
+    }
+
+    #[test]
+    fn url_encoded_email_is_found() {
+        assert_eq!(kinds("Contact%20me@home.example"), vec![Kind::Email]);
+    }
+
+    #[test]
+    fn email_before_a_sentence_end_is_found() {
+        assert_eq!(kinds("write to me@home.example."), vec![Kind::Email]);
+    }
+
+    #[test]
+    fn home_path_at_a_sentence_end_is_found() {
+        assert_eq!(kinds("my files are in /Users/jdoe."), vec![Kind::HomePath]);
+    }
+
+    #[test]
+    fn a_dotted_login_is_not_the_home_path() {
+        assert_eq!(kinds("/Users/jdoe.smith/x"), vec![]);
+    }
+
+    #[test]
+    fn json_escaped_tilde_form_is_found() {
+        assert_eq!(kinds(r"~jdoe\/x"), vec![Kind::HomePath]);
     }
 }
