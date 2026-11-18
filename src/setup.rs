@@ -49,17 +49,22 @@ fn write_private(path: &Path, lines: &[String]) -> std::io::Result<()> {
     }
 }
 
-// Saves the account's emails for the hook to read. Never fails setup: each
-// way gh can fall short prints one line and leaves any existing file.
-fn save_emails() {
-    let out = match Command::new("gh")
+// What asking gh for the account's emails came to.
+pub enum Gh {
+    Emails(Vec<String>),
+    Unavailable,
+    NeedsScope,
+    Failed(String),
+}
+
+// Asks gh for the account's addresses, lowercased, without noreply ones or
+// repeats. Shared by setup, which saves them, and doctor, which compares.
+pub fn gh_emails() -> Gh {
+    let Ok(out) = Command::new("gh")
         .args(["api", "user/emails", "--jq", ".[].email"])
         .output()
-    {
-        Ok(out) => out,
-        Err(_) => {
-            return println!("gh not available: only the emails in your git config are known");
-        }
+    else {
+        return Gh::Unavailable;
     };
     if out.status.success() {
         let mut emails: Vec<String> = Vec::new();
@@ -69,18 +74,7 @@ fn save_emails() {
                 emails.push(email);
             }
         }
-        let Some(path) = details::emails_path() else {
-            return println!("angerona: no config directory to save your emails in");
-        };
-        match write_private(&path, &emails) {
-            Ok(()) => println!(
-                "angerona: saved {} emails to {}",
-                emails.len(),
-                path.display()
-            ),
-            Err(e) => println!("angerona: could not save your emails ({e})"),
-        }
-        return;
+        return Gh::Emails(emails);
     }
     let said = format!(
         "{}{}",
@@ -88,12 +82,40 @@ fn save_emails() {
         String::from_utf8_lossy(&out.stderr)
     );
     if said.contains("scope") {
-        println!("run: gh auth refresh -h github.com -s user:email, then angerona setup again");
+        Gh::NeedsScope
     } else if said.contains("gh auth login") || said.contains("not logged") {
-        println!("gh not available: only the emails in your git config are known");
+        Gh::Unavailable
     } else {
-        let first = said.lines().next().unwrap_or("").trim();
-        println!("angerona: gh could not list your emails ({first}), left them as they were");
+        Gh::Failed(said.lines().next().unwrap_or("").trim().to_string())
+    }
+}
+
+// Saves the account's emails for the hook to read. Never fails setup: each
+// way gh can fall short prints one line and leaves any existing file.
+fn save_emails() {
+    match gh_emails() {
+        Gh::Emails(emails) => {
+            let Some(path) = details::emails_path() else {
+                return println!("angerona: no config directory to save your emails in");
+            };
+            match write_private(&path, &emails) {
+                Ok(()) => println!(
+                    "angerona: saved {} emails to {}",
+                    emails.len(),
+                    path.display()
+                ),
+                Err(e) => println!("angerona: could not save your emails ({e})"),
+            }
+        }
+        Gh::Unavailable => {
+            println!("gh not available: only the emails in your git config are known")
+        }
+        Gh::NeedsScope => {
+            println!("run: gh auth refresh -h github.com -s user:email, then angerona setup again")
+        }
+        Gh::Failed(first) => {
+            println!("angerona: gh could not list your emails ({first}), left them as they were")
+        }
     }
 }
 

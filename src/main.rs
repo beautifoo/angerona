@@ -1,6 +1,5 @@
 mod added;
 mod check;
-#[allow(dead_code)]
 mod details;
 mod doctor;
 mod identity;

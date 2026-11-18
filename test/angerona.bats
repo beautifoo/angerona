@@ -575,3 +575,86 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	[ "$status" -eq 1 ]
 	has bob@corp.example
 }
+
+# A setup that doctor accepts: the hook and emails file from setup, and
+# useConfigOnly. Needs fake_gh first.
+good_setup() {
+	git config --global user.useConfigOnly true
+	PATH=$BATS_TEST_TMPDIR/bin "$AG" setup >/dev/null
+}
+
+@test "doctor passes a good setup" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	[ "$status" -eq 0 ]
+	lacks "problem:"
+}
+
+@test "doctor flags a stale emails file" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	fake_gh 'printf "%s\n" Me@Personal.Example new@Other.Example'
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "fix: angerona setup"
+}
+
+@test "doctor flags a missing useConfigOnly" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	git config --global --unset user.useConfigOnly
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "fix: git config set --global user.useConfigOnly true"
+}
+
+@test "doctor flags a real global email" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	git config --global user.email me@real.example
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "+<user>@users.noreply.github.com"
+}
+
+@test "doctor flags a signing key set as an email" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	git config --global user.signingkey me@real.example
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "user.signingkey"
+}
+
+@test "doctor flags a missing hook" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	git config --global --unset hook.angerona.command
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "hook.angerona.command"
+}
+
+@test "doctor notes a weak login" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	USER=dev PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	has "note: login dev is too common to match"
+}
+
+@test "doctor with no identity says how to set one" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	git config --global --unset user.email
+	mkdir -p "$BATS_TEST_TMPDIR/empty"
+	HOME=$BATS_TEST_TMPDIR/empty PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	has "no global user.email"
+}
+
+@test "doctor ends with the scan reminder" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	[ "${lines[${#lines[@]}-1]}" = "angerona: repos already public are not rechecked; run angerona scan in each" ]
+}

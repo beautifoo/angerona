@@ -1,3 +1,4 @@
+use crate::{details, setup};
 use std::{
     env, fs,
     os::unix::fs::PermissionsExt,
@@ -11,30 +12,143 @@ fn executable(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
-// Checks that the git on PATH runs config hooks; prints each problem with the
-// command that fixes it.
+// The value of one global git config key; None when unset or git can't run.
+fn git_global(key: &str) -> Option<String> {
+    let out = Command::new("git")
+        .args(["config", "--global", "--get", key])
+        .output()
+        .ok()?;
+    let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !value.is_empty()).then_some(value)
+}
+
+// The addresses the emails file holds, lowercased and sorted; None when the
+// file is missing.
+fn saved_emails() -> Option<Vec<String>> {
+    let text = fs::read_to_string(details::emails_path()?).ok()?;
+    let mut emails: Vec<String> = text
+        .lines()
+        .map(|l| l.trim().to_lowercase())
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
+    emails.sort();
+    emails.dedup();
+    Some(emails)
+}
+
+// Checks the git settings that keep your details out of pushes and prints each
+// problem with the command that fixes it. Exits 1 when there is a problem;
+// notes alone don't fail.
 pub fn run() -> i32 {
     let mut problems = String::new();
     let mut notes = String::new();
     check_gits(&mut problems, &mut notes);
 
-    if !notes.is_empty() {
-        print!("angerona: note: {notes}");
+    if git_global("user.useConfigOnly").as_deref() != Some("true") {
+        problems += "user.useConfigOnly is not true, so git guesses an email from your host name; fix: git config set --global user.useConfigOnly true\n";
+    }
+
+    match git_global("user.email") {
+        Some(email) if !details::is_noreply(&email) => {
+            problems += &format!(
+                "the global user.email {email} is a real address; fix: set it to your noreply form <id>+<user>@users.noreply.github.com (one per host, see includeIf)\n"
+            );
+        }
+        Some(_) => {}
+        None => {
+            notes += "no global user.email: git asks in each repo; set one per host in an includeIf file as <id>+<user>@users.noreply.github.com\n";
+        }
+    }
+
+    let includes = Command::new("git")
+        .args(["config", "--global", "--get-regexp", "^includeif\\."])
+        .output()
+        .is_ok_and(|o| o.status.success() && !o.stdout.is_empty());
+    if !includes {
+        notes += "no includeIf in your global git config; give each host its own email with includeIf \"hasconfig:remote.*.url:git@<host>:**\" and a path to a file that sets user.email\n";
+    }
+
+    let hook = git_global("hook.angerona.command").as_deref() == Some(setup::HOOK_COMMAND)
+        && git_global("hook.angerona.event").as_deref() == Some("pre-push");
+    if !hook {
+        problems += "the pre-push hook is missing or changed (hook.angerona.command, hook.angerona.event); fix: angerona setup\n";
+    }
+
+    // The PATH apps started from the Dock give hooks.
+    let found = Command::new("/usr/bin/env")
+        .args([
+            "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+            "sh",
+            "-c",
+            "command -v angerona",
+        ])
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !found {
+        notes += "apps started from the Dock won't find angerona, so their pushes print 'not checked'; link it into /usr/local/bin\n";
+    }
+
+    if git_global("user.signingkey").is_some_and(|k| k.contains('@')) {
+        problems += "user.signingkey looks like an email, which signs commits with it as the key name; fix: set it to the key fingerprint\n";
+    }
+
+    let saved = saved_emails();
+    match setup::gh_emails() {
+        setup::Gh::Emails(mut now) => {
+            now.sort();
+            if saved.as_ref() != Some(&now) {
+                problems += "the emails file is missing or differs from your GitHub account's addresses; fix: angerona setup\n";
+            }
+        }
+        setup::Gh::Unavailable => {
+            notes +=
+                "gh is not available, so the emails file can't be checked against your account\n";
+        }
+        setup::Gh::NeedsScope => {
+            notes += "gh lacks the user:email scope, so the emails file can't be checked; run: gh auth refresh -h github.com -s user:email\n";
+        }
+        setup::Gh::Failed(first) => {
+            notes += &format!(
+                "gh could not list your emails ({first}), so the emails file can't be checked\n"
+            );
+        }
+    }
+
+    let details = details::discover(&details::machine());
+    for line in &details.weak {
+        notes += line;
+        if cfg!(target_os = "macos") && line.starts_with("host ") {
+            notes += "; fix: sudo scutil --set HostName <name>";
+        }
+        notes += "\n";
+    }
+
+    for line in problems.lines() {
+        println!("angerona: problem: {line}");
+    }
+    for line in notes.lines() {
+        println!("angerona: note: {line}");
     }
     if problems.is_empty() {
-        println!("angerona: git is new enough");
-        0
-    } else {
-        print!("angerona: {problems}");
-        1
+        println!("angerona: no problems found");
     }
+
+    println!("angerona: emails kept out of pushes:");
+    for (email, place) in &details.emails {
+        println!("  {email} ({place})");
+    }
+    println!(
+        "angerona: note: turn on your forge's email privacy setting (GitHub: Keep my email addresses private), since commits made on the website skip the hook"
+    );
+    println!("angerona: repos already public are not rechecked; run angerona scan in each");
+    i32::from(!problems.is_empty())
 }
 
 // A git before 2.54, or one that can't run, skips config hooks without a
 // word. The first git on PATH is the one that runs them here, so it adds to
 // problems; another adds only to notes, since an app may still commit with
-// it. Says whether the first one runs them.
-fn check_gits(problems: &mut String, notes: &mut String) -> bool {
+// it.
+fn check_gits(problems: &mut String, notes: &mut String) {
     let mut gits: Vec<PathBuf> = Vec::new();
     let path = env::var_os("PATH").unwrap_or_default();
     for dir in env::split_paths(&path).filter(|d| !d.as_os_str().is_empty()) {
@@ -45,7 +159,7 @@ fn check_gits(problems: &mut String, notes: &mut String) -> bool {
     }
     let Some(first) = gits.first() else {
         *problems += &format!("no git on PATH; fix: {NEW_GIT}\n");
-        return false;
+        return;
     };
 
     let mut good = None;
@@ -62,7 +176,6 @@ fn check_gits(problems: &mut String, notes: &mut String) -> bool {
     }
 
     let dir = |g: &Path| g.parent().unwrap_or(g).display().to_string();
-    let mut first_runs_hooks = true;
     for (g, version) in bad {
         let fix = match good {
             None => NEW_GIT.to_string(),
@@ -70,17 +183,15 @@ fn check_gits(problems: &mut String, notes: &mut String) -> bool {
             Some(good) => format!("point any app that uses it at {}", good.display()),
         };
         let msg = format!(
-            "{} ({version}) skips config hooks, so a commit or push made with it skips the guard; fix: {fix}\n",
+            "{} ({version}) skips config hooks, so a commit or push made with it is not checked; fix: {fix}\n",
             g.display()
         );
         if g == first {
-            first_runs_hooks = false;
             *problems += &msg;
         } else {
             *notes += &msg;
         }
     }
-    first_runs_hooks
 }
 
 // The first line git --version prints on stdout, past any warning, or on
