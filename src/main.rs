@@ -10,6 +10,7 @@ mod public;
 mod push;
 #[allow(dead_code)]
 mod repo;
+mod scan;
 mod setup;
 mod text;
 mod tty;
@@ -89,12 +90,28 @@ fn unprobeable_is_public(url: &str) -> bool {
     tty::ask(&format!("Treat {url} as public? [Y/n]"), true).unwrap_or(true)
 }
 
+// angerona scan: run by hand in a repo before it goes public.
+fn scan() -> i32 {
+    let repo = match repo::open(Path::new(".")) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("angerona: {e}");
+            return 1;
+        }
+    };
+    let details = details::discover(&details::machine());
+    let m = matcher::Matcher::new(&details);
+    let own: Vec<String> = details.emails.iter().map(|(e, _)| e.clone()).collect();
+    scan::run(&repo, &m, &own)
+}
+
 fn main() {
     let args: Vec<OsString> = env::args_os().skip(1).collect();
     let arg = |i: usize| args.get(i).and_then(|a| a.to_str());
     match (arg(0), arg(1), arg(2)) {
         (Some("check-push"), Some(remote), Some(url)) => exit(check_push(remote, url)),
         (Some("doctor"), _, _) => exit(doctor::run()),
+        (Some("scan"), _, _) => exit(scan()),
         (Some("setup"), _, _) => exit(setup::run()),
         _ => {
             eprintln!("usage: angerona check-push REMOTE URL | scan | doctor | setup");

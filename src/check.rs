@@ -11,11 +11,11 @@ use gix::{
 };
 use std::error::Error;
 
-const IN_FILE: &str = "edit the file, then amend or rebase";
+pub const IN_FILE: &str = "edit the file, then amend or rebase";
 const IN_IDENTITY: &str =
     "git rebase -i <base> --exec 'git commit --amend --no-edit --reset-author'";
 const IN_MESSAGE: &str = "git rebase -i, reword";
-const IN_REF: &str = "push under another name: git push <remote> HEAD:refs/heads/<name>";
+pub const IN_REF: &str = "push under another name: git push <remote> HEAD:refs/heads/<name>";
 
 // One personal detail, where it is, and how to take it out.
 pub struct Finding {
@@ -25,7 +25,7 @@ pub struct Finding {
 }
 
 // The kind of detail, and the text as found, so it can be searched for.
-fn what(h: &Hit) -> String {
+pub fn what(h: &Hit) -> String {
     let kind = match h.kind {
         HitKind::Email => "email",
         HitKind::HomePath => "home path",
@@ -36,7 +36,7 @@ fn what(h: &Hit) -> String {
 }
 
 // Each hit in an item, at the place its label names.
-fn item_findings(m: &Matcher, object: &str, item: &Item, hint: &'static str) -> Vec<Finding> {
+pub fn item_findings(m: &Matcher, object: &str, item: &Item, hint: &'static str) -> Vec<Finding> {
     let text = String::from_utf8_lossy(&item.bytes);
     let mut found = Vec::new();
     for h in m.find(&text) {

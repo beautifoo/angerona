@@ -504,3 +504,53 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	[ "$status" -eq 0 ]
 	has "gh not available"
 }
+
+@test "scan of a clean repo passes" {
+	repo
+	commit a.txt hello
+	run "$AG" scan
+	[ "$status" -eq 0 ]
+}
+
+@test "scan reports an old home path deleted since" {
+	repo
+	commit a.txt /Users/jdoe/x
+	git rm -q a.txt
+	git commit -qm remove
+	run "$AG" scan
+	[ "$status" -eq 1 ]
+	has /Users/jdoe
+}
+
+@test "scan reports a current file" {
+	repo
+	commit a.txt /Users/jdoe/x
+	run "$AG" scan
+	has "current a.txt:1"
+}
+
+@test "scan reports any committer email" {
+	repo
+	commit a.txt hello
+	GIT_COMMITTER_EMAIL=bob@corp.example git commit -q --amend --no-edit --allow-empty
+	run "$AG" scan
+	has bob@corp.example
+}
+
+@test "scan warns on a shallow clone" {
+	repo
+	commit a.txt one
+	commit b.txt two
+	git clone -q --depth 1 "file://$PWD" "$BATS_TEST_TMPDIR/s"
+	cd "$BATS_TEST_TMPDIR/s"
+	run "$AG" scan
+	has "this clone is shallow or partial"
+}
+
+@test "scan never changes the repo" {
+	repo
+	commit a.txt /Users/jdoe/x
+	before=$(git rev-parse --all; git status --porcelain)
+	run "$AG" scan
+	[ "$(git rev-parse --all; git status --porcelain)" = "$before" ]
+}
