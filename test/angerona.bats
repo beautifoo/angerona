@@ -1325,6 +1325,13 @@ oldgit() {
 	[ "$status" -eq 0 ]
 }
 
+@test "check-msg reads on past a scissors line no diff follows, as git keeps that text" {
+	printf 'fix: tidy\n# ------------------------ >8 ------------------------\nfor globex\n' >"$BATS_TEST_TMPDIR/msg"
+	run "$AG" check-msg "$BATS_TEST_TMPDIR/msg"
+	[ "$status" -eq 1 ]
+	has "message line 3: globex"
+}
+
 @test "doctor refuses hooks whose command is gone" {
 	repo
 	hooks
