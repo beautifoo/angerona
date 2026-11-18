@@ -352,6 +352,21 @@ mod tests {
         })
     }
 
+    // The real path of $HOME counts, even where it doesn't end in the login.
+    #[test]
+    fn the_real_home_path_is_found() {
+        let m = Matcher::new(&Details {
+            emails: vec![],
+            home: Some("/srv/me".into()),
+            raw_login: Some("jdoe".into()),
+            login: Some("jdoe".into()),
+            hosts: vec![],
+            weak: vec![],
+        });
+        let kinds: Vec<_> = m.find("/srv/me/x").into_iter().map(|h| h.kind).collect();
+        assert_eq!(kinds, vec![Kind::HomePath]);
+    }
+
     #[test]
     fn email_with_an_apostrophe_is_found() {
         let hits = with_emails(&["o'brien@example.com"]).find("o'brien@example.com");
