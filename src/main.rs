@@ -10,6 +10,7 @@ mod public;
 mod push;
 #[allow(dead_code)]
 mod repo;
+mod setup;
 mod text;
 mod tty;
 
@@ -94,6 +95,7 @@ fn main() {
     match (arg(0), arg(1), arg(2)) {
         (Some("check-push"), Some(remote), Some(url)) => exit(check_push(remote, url)),
         (Some("doctor"), _, _) => exit(doctor::run()),
+        (Some("setup"), _, _) => exit(setup::run()),
         _ => {
             eprintln!("usage: angerona check-push REMOTE URL | scan | doctor | setup");
             exit(2)

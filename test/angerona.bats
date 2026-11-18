@@ -392,3 +392,113 @@ with_tty() {
 	[ "$status" -eq 1 ]
 	lacks "Treat"
 }
+
+# A bin dir holding only git and a fake gh that runs the given script body.
+fake_gh() {
+	mkdir -p "$BATS_TEST_TMPDIR/bin"
+	ln -sf "$(command -v git)" "$BATS_TEST_TMPDIR/bin/git"
+	printf '#!/bin/sh\n%s\n' "$1" >"$BATS_TEST_TMPDIR/bin/gh"
+	chmod +x "$BATS_TEST_TMPDIR/bin/gh"
+}
+
+# A bin dir holding only git: no gh on PATH.
+no_gh() {
+	mkdir -p "$BATS_TEST_TMPDIR/bin"
+	ln -sf "$(command -v git)" "$BATS_TEST_TMPDIR/bin/git"
+}
+
+# A repo r pushing to origin.git, with only the global hook from setup.
+global_repo() {
+	git init -q --bare "$BATS_TEST_TMPDIR/origin.git"
+	git init -q "$BATS_TEST_TMPDIR/r"
+	cd "$BATS_TEST_TMPDIR/r"
+	git remote add origin "$BATS_TEST_TMPDIR/origin.git"
+}
+
+HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@"; else echo '\''angerona not installed, push not checked'\'' >&2; fi; }; f'
+
+@test "setup writes the hook into the global config" {
+	no_gh
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
+	[ "$status" -eq 0 ]
+	[ "$(git config --global hook.angerona.command)" = "$HOOK" ]
+}
+
+@test "setup sets the pre-push event" {
+	no_gh
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
+	[ "$(git config --global hook.angerona.event)" = pre-push ]
+}
+
+@test "setup keeps the home path out of the global config" {
+	no_gh
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
+	run grep -e /Users/ -e '$HOME' "$GIT_CONFIG_GLOBAL"
+	[ "$status" -eq 1 ]
+}
+
+@test "setup writes through a symlinked config" {
+	no_gh
+	printf '' >"$BATS_TEST_TMPDIR/real"
+	ln -s "$BATS_TEST_TMPDIR/real" "$BATS_TEST_TMPDIR/link"
+	export GIT_CONFIG_GLOBAL=$BATS_TEST_TMPDIR/link
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
+	[ -L "$BATS_TEST_TMPDIR/link" ]
+	grep -q 'event = pre-push' "$BATS_TEST_TMPDIR/real"
+}
+
+@test "the hook line runs angerona from PATH" {
+	no_gh
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
+	mkdir "$BATS_TEST_TMPDIR/ag"
+	ln -s "$AG" "$BATS_TEST_TMPDIR/ag/angerona"
+	global_repo
+	commit a.txt /Users/jdoe/x
+	TERM=dumb PATH=$BATS_TEST_TMPDIR/ag:$PATH run git push origin main
+	[ "$status" -eq 1 ]
+}
+
+@test "without angerona the push passes with a warning" {
+	no_gh
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
+	global_repo
+	commit a.txt /Users/jdoe/x
+	run git push origin main
+	[ "$status" -eq 0 ]
+	has "angerona not installed, push not checked"
+}
+
+@test "setup saves my GitHub emails privately" {
+	fake_gh 'printf "%s\n" Me@Personal.Example 1+me@users.noreply.github.com'
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
+	[ "$(cat "$XDG_CONFIG_HOME/angerona/emails")" = me@personal.example ]
+}
+
+@test "the saved emails file is private" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
+	[ "$(stat -f %Lp "$XDG_CONFIG_HOME/angerona/emails" 2>/dev/null || stat -c %a "$XDG_CONFIG_HOME/angerona/emails")" = 600 ]
+}
+
+@test "a saved email in a pushed file is refused" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
+	repo
+	commit a.txt me@personal.example
+	TERM=dumb run git push origin main
+	[ "$status" -eq 1 ]
+}
+
+@test "setup asks for the user:email scope" {
+	fake_gh 'echo "This API operation needs the \"user\" scope" >&2; exit 1'
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
+	[ "$status" -eq 0 ]
+	has "run: gh auth refresh -h github.com -s user:email, then angerona setup again"
+}
+
+@test "setup without gh still writes the hook" {
+	no_gh
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
+	[ "$status" -eq 0 ]
+	has "gh not available"
+}
