@@ -17,6 +17,8 @@ setup() {
 	export USER=jdoe ANGERONA_TEST_HOSTS=jdoes-laptop ANGERONA_TEST_VISIBILITY=public
 	export TMPDIR=$BATS_TEST_TMPDIR/tmp
 	mkdir "$TMPDIR"
+	# No test may ask the terminal it runs in; with_tty gives one of its own.
+	export TERM=dumb
 }
 
 teardown() {
@@ -355,7 +357,7 @@ with_tty() {
 @test "without a terminal a finding blocks and names --no-verify" {
 	repo
 	commit a.txt /Users/jdoe/x
-	TERM=dumb run git push origin main
+	run git push origin main
 	[ "$status" -eq 1 ]
 	has "--no-verify"
 }
@@ -378,7 +380,7 @@ with_tty() {
 	repo
 	export ANGERONA_TEST_VISIBILITY=unprobeable
 	commit a.txt me@home.example
-	TERM=dumb run git push origin main
+	run git push origin main      # TERM=dumb: no terminal
 	[ "$status" -eq 1 ]
 	has "email me@home.example"
 	lacks "Treat"
@@ -454,7 +456,7 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	ln -s "$AG" "$BATS_TEST_TMPDIR/ag/angerona"
 	global_repo
 	commit a.txt /Users/jdoe/x
-	TERM=dumb PATH=$BATS_TEST_TMPDIR/ag:$BATS_TEST_TMPDIR/bin:/bin run git push origin main
+	PATH=$BATS_TEST_TMPDIR/ag:$BATS_TEST_TMPDIR/bin:/bin run git push origin main
 	[ "$status" -eq 1 ]
 	has "this push names you"
 }
@@ -487,7 +489,7 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
 	repo
 	commit a.txt me@personal.example
-	TERM=dumb run git push origin main
+	run git push origin main
 	[ "$status" -eq 1 ]
 }
 
