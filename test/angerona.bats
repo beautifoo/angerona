@@ -321,3 +321,72 @@ push_private() {
 	[ "$status" -eq 1 ]
 	has "refusing to push"
 }
+
+# Runs the command with a terminal that answers with INPUT, as the hook's /dev/tty.
+with_tty() {
+	local input=$1
+	shift
+	export TERM=xterm
+	if [[ $(uname) == Darwin ]]; then
+		{ printf '%s' "$input"; sleep 1; } | script -q /dev/null "$@"
+	else
+		{ printf '%s' "$input"; sleep 1; } | script -qec "$(printf '%q ' "$@")" /dev/null
+	fi
+}
+
+@test "answering y pushes past a finding" {
+	repo
+	commit a.txt /Users/jdoe/x
+	run with_tty $'y\n' git push origin main
+	[ "$status" -eq 0 ]
+	has "Push anyway?"
+}
+
+@test "the default is no" {
+	repo
+	commit a.txt /Users/jdoe/x
+	run with_tty $'\n' git push origin main
+	[ "$status" -eq 1 ]
+	has "other hooks may still refuse this push"
+}
+
+@test "without a terminal a finding blocks and names --no-verify" {
+	repo
+	commit a.txt /Users/jdoe/x
+	TERM=dumb run git push origin main
+	[ "$status" -eq 1 ]
+	has "--no-verify"
+}
+
+@test "an unprobeable URL asks on every push and saves nothing" {
+	repo
+	commit a.txt /Users/jdoe/x
+	export ANGERONA_TEST_VISIBILITY=unprobeable
+	run with_tty $'n\n' git push origin main
+	[ "$status" -eq 0 ]
+	commit b.txt /Users/jdoe/y
+	run with_tty $'n\n' git push origin main
+	[ "$status" -eq 0 ]
+	has "Treat"
+	run git config --local --get-regexp '^angerona\.'
+	[ "$status" -eq 1 ]
+}
+
+@test "an unprobeable URL with no terminal is checked as public" {
+	repo
+	export ANGERONA_TEST_VISIBILITY=unprobeable
+	commit a.txt me@home.example
+	TERM=dumb run git push origin main
+	[ "$status" -eq 1 ]
+	has "email me@home.example"
+	lacks "Treat"
+}
+
+@test "a passing failure checks without asking" {
+	repo
+	commit a.txt /Users/jdoe/x
+	export ANGERONA_TEST_VISIBILITY=passing
+	run with_tty $'n\n' git push origin main
+	[ "$status" -eq 1 ]
+	lacks "Treat"
+}

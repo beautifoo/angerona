@@ -5,13 +5,13 @@ mod details;
 mod doctor;
 mod identity;
 mod matcher;
-#[allow(dead_code)]
 mod public;
 #[allow(dead_code)]
 mod push;
 #[allow(dead_code)]
 mod repo;
 mod text;
+mod tty;
 
 use public::Visibility;
 use std::{
@@ -54,6 +54,7 @@ fn check_push(remote: &str, url: &str) -> i32 {
     let advert = match public::probe(url) {
         Visibility::Private => return 0,
         Visibility::Public(ids) if !ids.is_empty() => Some(ids),
+        Visibility::Unprobeable if !unprobeable_is_public(url) => return 0,
         _ => None,
     };
     let held = push::held(&repo, remote, url, advert);
@@ -67,7 +68,24 @@ fn check_push(remote: &str, url: &str) -> i32 {
         return 0;
     }
     eprint!("angerona: this push names you:\n{}", check::render(&found));
-    1
+    eprintln!("angerona: other hooks may still refuse this push");
+    match tty::ask("Push anyway? [y/N]", false) {
+        Some(true) => 0,
+        Some(false) => 1,
+        None => {
+            eprintln!(
+                "angerona: no terminal to ask; to push once past this: git push --no-verify \
+                 (it also skips every other pre-push hook)"
+            );
+            1
+        }
+    }
+}
+
+// A URL that can never be probed is asked about on every push, and nothing
+// is saved. A failure to ask is checked as public.
+fn unprobeable_is_public(url: &str) -> bool {
+    tty::ask(&format!("Treat {url} as public? [Y/n]"), true).unwrap_or(true)
 }
 
 fn main() {
