@@ -100,7 +100,11 @@ pub fn machine() -> Machine {
 
     let test_hosts = env::var("ANGERONA_TEST_HOSTS").ok();
     let hosts: Vec<String> = match test_hosts {
-        Some(t) if cfg!(debug_assertions) => t.split(',').map(str::to_string).collect(),
+        Some(t) if cfg!(debug_assertions) => t
+            .split(',')
+            .filter(|h| !h.is_empty())
+            .map(str::to_string)
+            .collect(),
         _ => {
             let mut hosts: Vec<String> = command_line("hostname", &[]).into_iter().collect();
             if cfg!(target_os = "macos") {
@@ -155,14 +159,13 @@ pub fn is_noreply(email: &str) -> bool {
 // is too short or too common to mean you.
 pub fn normalize_host(h: &str) -> Option<String> {
     let h = h.trim().to_lowercase();
-    let h = h.strip_suffix(".local").unwrap_or(&h);
-    let h = h.split('.').next().unwrap_or(h);
+    let h = h.split('.').next().unwrap_or(&h);
     (h.chars().count() >= 4 && !GENERIC_HOSTS.contains(&h)).then(|| h.to_string())
 }
 
-// A login this short or common would match strangers' text.
+// A login this short or common would match strangers' text, whatever its case.
 pub fn weak_login(l: &str) -> bool {
-    l.chars().count() < 3 || GENERIC_LOGINS.contains(&l)
+    l.chars().count() < 3 || GENERIC_LOGINS.contains(&l.to_lowercase().as_str())
 }
 
 fn expand_tilde(p: &str) -> PathBuf {
@@ -247,7 +250,17 @@ pub fn discover(m: &Machine) -> Details {
         match normalize_host(h) {
             Some(n) if !hosts.contains(&n) => hosts.push(n),
             Some(_) => {}
-            None => weak.push(format!("host {h} is too short or common to match")),
+            None => {
+                // Hostname, HostName and LocalHostName often differ only in case.
+                let first = h.trim().to_lowercase();
+                let line = format!(
+                    "host {} is too short or common to match",
+                    first.split('.').next().unwrap_or(&first)
+                );
+                if !weak.contains(&line) {
+                    weak.push(line);
+                }
+            }
         }
     }
 
@@ -391,6 +404,18 @@ mod tests {
         assert_eq!(discover(&m).login, Some("jdoe".to_string()));
     }
 
+    #[test]
+    fn weak_lines_are_not_repeated_and_the_floor_ignores_case() {
+        let mut m = machine_with_configs(vec![]);
+        m.login = Some("Root".to_string());
+        m.hosts = vec![
+            "MacBook-Pro.local".to_string(),
+            "macbook-pro".to_string(),
+            "MACBOOK-PRO".to_string(),
+        ];
+        let d = discover(&m);
+        assert_eq!(d.weak.len(), 2);
+    }
     #[test]
     fn discovers_nothing_without_home_or_config() {
         let d = discover(&machine_with_configs(vec![]));
