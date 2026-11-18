@@ -454,8 +454,9 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	ln -s "$AG" "$BATS_TEST_TMPDIR/ag/angerona"
 	global_repo
 	commit a.txt /Users/jdoe/x
-	TERM=dumb PATH=$BATS_TEST_TMPDIR/ag:$PATH run git push origin main
+	TERM=dumb PATH=$BATS_TEST_TMPDIR/ag:$BATS_TEST_TMPDIR/bin:/bin run git push origin main
 	[ "$status" -eq 1 ]
+	has "this push names you"
 }
 
 @test "without angerona the push passes with a warning" {
@@ -463,7 +464,7 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
 	global_repo
 	commit a.txt /Users/jdoe/x
-	run git push origin main
+	PATH=$BATS_TEST_TMPDIR/bin:/bin run git push origin main
 	[ "$status" -eq 0 ]
 	has "angerona not installed, push not checked"
 }
@@ -477,7 +478,8 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 @test "the saved emails file is private" {
 	fake_gh 'printf "%s\n" Me@Personal.Example'
 	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
-	[ "$(stat -f %Lp "$XDG_CONFIG_HOME/angerona/emails" 2>/dev/null || stat -c %a "$XDG_CONFIG_HOME/angerona/emails")" = 600 ]
+	f=$XDG_CONFIG_HOME/angerona/emails
+	[ -n "$(find "$f" -perm 600)" ]
 }
 
 @test "a saved email in a pushed file is refused" {
