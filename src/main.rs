@@ -6,6 +6,8 @@ mod identity;
 #[allow(dead_code)]
 mod matcher;
 #[allow(dead_code)]
+mod public;
+#[allow(dead_code)]
 mod push;
 #[allow(dead_code)]
 mod repo;

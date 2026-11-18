@@ -133,7 +133,7 @@ fn list_refs(repo: &gix::Repository, remote: &str, url: Option<&str>) -> Option<
 
 // Git gives the URL with its credentials, which can sit in the user field
 // too: a URL is shown without either.
-fn without_credentials(url: &str) -> String {
+pub fn without_credentials(url: &str) -> String {
     match gix::url::parse(url) {
         Ok(mut parsed) => {
             parsed.set_user(None);
