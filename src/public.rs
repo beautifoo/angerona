@@ -136,8 +136,15 @@ pub fn advertised(body: &[u8]) -> Vec<ObjectId> {
     ids
 }
 
-// One GET with nothing of ours in it: no netrc, no auth, no headers, and
-// the URL without its user and password.
+// Firewalls in front of some forges refuse a request with no User-Agent, or
+// one that is not git's, with a 403, which would read as private. It names
+// only the program, no credential.
+fn user_agent() -> String {
+    format!("git/angerona-{}", env!("CARGO_PKG_VERSION"))
+}
+
+// One GET with nothing of ours in it: no netrc, no auth, no headers but the
+// User-Agent, and the URL without its user and password.
 fn get(url: &str) -> Answer {
     let mut body = Vec::new();
     let mut status = 0;
@@ -149,6 +156,7 @@ fn get(url: &str) -> Answer {
         easy.connect_timeout(Duration::from_secs(3))?;
         easy.timeout(Duration::from_secs(5))?;
         easy.netrc(NetRc::Ignored)?;
+        easy.useragent(&user_agent())?;
         let mut transfer = easy.transfer();
         // Each redirect sends its own headers, so the last ones win.
         transfer.header_function(|line| {
@@ -436,6 +444,11 @@ mod tests {
     #[test]
     fn https_form_refuses_an_option_looking_host() {
         assert_eq!(form("ssh://-oProxyCommand=x/r"), None);
+    }
+
+    #[test]
+    fn the_user_agent_reads_as_git() {
+        assert!(user_agent().starts_with("git/"));
     }
 
     #[test]
