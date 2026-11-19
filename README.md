@@ -61,11 +61,12 @@ Then check your git settings:
 angerona doctor
 ```
 
-`doctor` prints each problem with the fix: `user.useConfigOnly`, a noreply
-global `user.email`, an identity per host with `includeIf`, the hook, the
-emails file against your GitHub account, a signing key that is an email, a
-machine name too short or generic to match, and your git version. It exits 1
-when it finds a problem.
+`doctor` prints problems, each with its fix, and notes. It checks
+`user.useConfigOnly`, a noreply global `user.email`, an identity per host with
+`includeIf`, the hook and whether apps started outside a terminal find
+angerona, the emails file against your GitHub account, a signing key that is
+an email, a machine name too short or generic to match, and your git version.
+It exits 1 when it finds a problem; notes alone don't fail.
 
 ## What counts as you
 
@@ -119,9 +120,10 @@ self-signed certificate), it asks on every push:
 Treat <url> as public? [Y/n]
 ```
 
-and saves nothing. Answering n treats the repo as private. If it can't ask (no
-terminal, a timeout, a server error), it checks the push as public. Any error
-while reading the push blocks it.
+and saves nothing. Answering n treats the repo as private. With no terminal to
+ask on, it checks the push as public. When the host doesn't answer in time or
+answers with a server error, it never asks: it checks the push as public. Any
+error while reading the push blocks it.
 
 To push once past the hook:
 
