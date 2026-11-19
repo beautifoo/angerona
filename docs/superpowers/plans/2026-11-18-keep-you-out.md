@@ -33,7 +33,7 @@
 
 - **Bytes that aren't UTF-8** (Latin-1 messages, binary-ish text files): no panic, matches still found around them. Test in Task 3 (`matches_around_invalid_utf8`) and Task 7 (bats `a Latin-1 message still matches`).
 - **A push of only a tag, or only deletions**: an annotated tag on an already-pushed commit is still read; a deletion-only push passes without probing. Task 7 bats tests `a tag on a pushed commit is checked` and `a deletion-only push passes`.
-- **URLs carrying credentials or odd forms**: credentials never printed. Task 5 tests `https_form_drops_credentials`.
+- **URLs carrying credentials or odd forms**: credentials never printed. Task 5 tests `https_form_drops_credentials`; bats tests `the unprobeable-URL question hides the URL's credentials`.
 - **No identity and no HOME**: `details::discover` with `HOME` unset and no `user.email` returns empty fields, never panics; `doctor` reports it. Task 2 test `discovers_nothing_without_home_or_config` and Task 11 bats `doctor with no identity says how to set one`.
 - **Linked worktrees and repos opened from a subdirectory**: the hook reads the same repo and config as git. Task 7 bats `the hook works from a linked worktree`.
 
@@ -270,6 +270,7 @@ Rules, all case-insensitive, built as one `regex::Regex` per kind with the detai
   - `answering y pushes past a finding`, `the default is no`
   - `without a terminal a finding blocks and names --no-verify` (plain `run`, output has `--no-verify`)
   - `an unprobeable URL asks on every push and saves nothing` (answering n passes, the next push asks again, and no `angerona.` key is in the repo config)
+  - `an unprobeable URL with no terminal is checked as public` (plain `run`; an own email blocks; output lacks `Treat`)
   - `a passing failure checks without asking`
 - [ ] **Step 2:** fails; **Step 3:** implement; **Step 4:** passes, global check.
 - [ ] **Step 5:** Commit `feat: Ask before pushing past a finding`.
