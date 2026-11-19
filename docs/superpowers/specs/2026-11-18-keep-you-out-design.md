@@ -80,7 +80,7 @@ The response body of the public check is the remote's ref list, so it also gives
 
 - **Added lines:** lines in each changed file that are not in that file's version in *any* parent (set difference, not a diff algorithm; covers merge-conflict edits without re-reporting the merged-in side). A blob that already exists in a parent's tree adds nothing (a pure rename or move). A renamed and edited file is compared with its rename source (gix rename tracking). A root commit or a missing parent: every line is new.
 - **File paths** of every added or renamed file.
-- **Binary blobs** (as git decides binary): searched whole, as bytes, in UTF-8 and UTF-16 LE/BE (text-run reader already in `scan.rs`).
+- **Binary blobs** (as git decides binary): read as their readable runs of 6 or more characters, in ASCII and in UTF-16 at both byte alignments; a blob that starts with a UTF-16 byte-order mark is decoded whole.
 - **Identities and trailers:** author, committer, tagger, and every `Name <email>` trailer (`Co-authored-by`, `Signed-off-by`, `Reported-by`, `Reviewed-by`, `Helped-by`, …), read from the raw object, never through mailmap-aware formats.
 - **Commit and tag messages**, signatures stripped.
 - **The remote ref name** only (the local name never reaches the remote).
