@@ -101,7 +101,11 @@ asks:
 Push anyway? [y/N]
 ```
 
-The default is No. Without a terminal the push is blocked.
+The default is No. Without a terminal the push is blocked, with:
+
+```
+angerona: fix the lines above and push again; only a person should push past this, with git push --no-verify (it also skips every other pre-push hook)
+```
 
 If it can't tell whether a host is public (an SSH host with no web address, a
 self-signed certificate), it asks on every push:

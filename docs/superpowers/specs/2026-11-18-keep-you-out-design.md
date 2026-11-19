@@ -87,7 +87,7 @@ The response body of the public check is the remote's ref list, so it also gives
 
 **Email rule:** your emails are flagged anywhere in any outgoing commit: identities, trailers, messages, lines, paths, binaries. Any other non-noreply email is flagged **only as the committer of an unpublished commit or the tagger of a tag in the push**, the fields that say who ran git. So fork syncs and other people's already-public commits stay quiet; a patch you apply (`git am`, a cherry-pick of a contributor's branch) has you as committer and the contributor as author, and stays quiet; a commit made on another machine under a personal email set nowhere on this one is still caught. Other people's emails in authors, trailers and content are never flagged. The repo's own email is skipped only when it is shaped like an address (text, `@`, text): a `user.email` of `jdoe` would otherwise hide a `jdoe/` branch or a login finding. Home path, login and machine-name rules apply to all outgoing content, in private repos too. The email rule applies only to a public repo.
 
-**4. On a finding:** list each finding (commit, where, what, a fix hint), then with a terminal (`/dev/tty` opens) ask `Push anyway? [y/N]`, default No. Never read the answer from stdin (it holds the ref lines). Without a terminal: block, and say that `git push --no-verify` pushes once past it (and also skips every other pre-push hook). The prompt mentions that other hooks may still refuse the push. Any internal error blocks.
+**4. On a finding:** list each finding (commit, where, what, a fix hint), then with a terminal (`/dev/tty` opens) ask `Push anyway? [y/N]`, default No. Never read the answer from stdin (it holds the ref lines). Without a terminal: block, leading with the fix and leaving the bypass to a person: `fix the lines above and push again; only a person should push past this, with git push --no-verify (it also skips every other pre-push hook)`. The prompt mentions that other hooks may still refuse the push. Any internal error blocks.
 
 ### `angerona scan`
 
@@ -139,7 +139,7 @@ Checks and prints what to fix:
   Consequence: an email set in no git config on this machine is caught only as the committer of an unpublished commit or the tagger of a pushed tag.
 - The login as a branch prefix is a personal detail.
 - Added lines only in the hook; whole history and files in `scan`.
-- On a finding: `Push anyway? [y/N]`; without a terminal, block and point to `--no-verify`.
+- On a finding: `Push anyway? [y/N]`; without a terminal, block, say to fix the lines and push again, and that only a person should push past it with `--no-verify` (2026-11-19).
 - Missing binary: warn and push.
 - Generic machine name: `doctor` tells you.
 - `doctor` does not search the disk for public repos; one closing line instead.

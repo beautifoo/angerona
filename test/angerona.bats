@@ -451,6 +451,7 @@ with_tty() {
 	commit a.txt /Users/jdoe/x
 	run git push origin main
 	[ "$status" -eq 1 ]
+	has "fix the lines above and push again"
 	has "--no-verify"
 }
 

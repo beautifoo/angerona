@@ -79,8 +79,8 @@ fn check_push(remote: &str, url: &str) -> i32 {
         Some(false) => 1,
         None => {
             eprintln!(
-                "angerona: no terminal to ask; to push once past this: git push --no-verify \
-                 (it also skips every other pre-push hook)"
+                "angerona: fix the lines above and push again; only a person should push past \
+                 this, with git push --no-verify (it also skips every other pre-push hook)"
             );
             1
         }
