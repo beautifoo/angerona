@@ -625,8 +625,9 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	has bob@corp.example
 }
 
-# A setup that doctor accepts: the hook and emails file from setup,
-# useConfigOnly, and angerona on PATH. Needs fake_gh first.
+# A setup that doctor accepts: the hook from setup (and, built with
+# github-emails, its emails file), useConfigOnly, and angerona on PATH.
+# Needs fake_gh first.
 good_setup() {
 	git config --global user.useConfigOnly true
 	PATH=$BATS_TEST_TMPDIR/bin "$AG" setup >/dev/null
