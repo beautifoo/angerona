@@ -13,7 +13,7 @@ A commit a push sends that the repo it goes to doesn't have yet.
 _Avoid_: pushed commit, new commit
 
 **Unpublished commit**:
-An outgoing commit that no remote you know of has yet, so nobody else can have published it.
+A commit that no remote you know of has yet, so nobody else can have published it.
 _Avoid_: new commit, local commit
 
 **Public repo**:
