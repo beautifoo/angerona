@@ -31,6 +31,9 @@ teardown() {
 has() { [[ $output == *"$1"* ]] || { echo "output lacks: $1"; return 1; }; }
 lacks() { [[ $output != *"$1"* ]] || { echo "output has: $1"; return 1; }; }
 
+# Skips a test of the GitHub emails, which only a build with that feature has.
+needs_github_emails() { [[ ${ANGERONA_FEATURES-} == *github-emails* ]] || skip "built without github-emails"; }
+
 # A repo r with the hook, pushing to the bare origin.git.
 repo() {
 	git init -q --bare "$BATS_TEST_TMPDIR/origin.git"
@@ -503,12 +506,14 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 }
 
 @test "setup saves my GitHub emails privately" {
+	needs_github_emails
 	fake_gh 'printf "%s\n" Me@Personal.Example 1+me@users.noreply.github.com'
 	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
 	[ "$(cat "$XDG_CONFIG_HOME/angerona/emails")" = me@personal.example ]
 }
 
 @test "the saved emails file is private" {
+	needs_github_emails
 	fake_gh 'printf "%s\n" Me@Personal.Example'
 	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
 	f=$XDG_CONFIG_HOME/angerona/emails
@@ -516,6 +521,7 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 }
 
 @test "a saved email in a pushed file is refused" {
+	needs_github_emails
 	fake_gh 'printf "%s\n" Me@Personal.Example'
 	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
 	repo
@@ -525,6 +531,7 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 }
 
 @test "setup asks for the user:email scope" {
+	needs_github_emails
 	fake_gh 'echo "This API operation needs the \"user\" scope" >&2; exit 1'
 	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
 	[ "$status" -eq 0 ]
@@ -532,10 +539,19 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 }
 
 @test "setup without gh still writes the hook" {
+	needs_github_emails
 	no_gh
 	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
 	[ "$status" -eq 0 ]
 	has "gh not available"
+}
+
+@test "setup writes only the hook" {
+	[[ ${ANGERONA_FEATURES-} != *github-emails* ]] || skip "built with github-emails"
+	fake_gh ": >'$BATS_TEST_TMPDIR/gh-called'"
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
+	[ ! -e "$BATS_TEST_TMPDIR/gh-called" ]
+	[ ! -e "$XDG_CONFIG_HOME/angerona" ]
 }
 
 @test "scan of a clean repo passes" {
@@ -626,6 +642,7 @@ good_setup() {
 }
 
 @test "doctor flags a stale emails file" {
+	needs_github_emails
 	fake_gh 'printf "%s\n" Me@Personal.Example'
 	good_setup
 	fake_gh 'printf "%s\n" Me@Personal.Example new@Other.Example'

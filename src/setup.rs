@@ -1,10 +1,12 @@
+#[cfg(feature = "github-emails")]
 use crate::details;
+use std::process::Command;
+#[cfg(feature = "github-emails")]
 use std::{
     fs::{self, DirBuilder, OpenOptions},
     io::Write,
     os::unix::fs::{DirBuilderExt, OpenOptionsExt},
     path::Path,
-    process::Command,
 };
 
 // Git appends "$@" to a config hook's command, so the trailing f gets the
@@ -29,6 +31,7 @@ fn git_set(key: &str, value: &str) -> Result<(), String> {
 
 // Writes the lines to the path through a temp file in the same directory, so
 // a reader never sees half of them. The directory is 700, the file 600.
+#[cfg(feature = "github-emails")]
 fn write_private(path: &Path, lines: &[String]) -> std::io::Result<()> {
     let dir = path.parent().unwrap_or(Path::new("."));
     DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
@@ -53,6 +56,7 @@ fn write_private(path: &Path, lines: &[String]) -> std::io::Result<()> {
 }
 
 // What asking gh for the account's emails came to.
+#[cfg(feature = "github-emails")]
 pub enum Gh {
     Emails(Vec<String>),
     Unavailable,
@@ -62,6 +66,7 @@ pub enum Gh {
 
 // Asks gh for the account's addresses, lowercased, without noreply ones or
 // repeats. Shared by setup, which saves them, and doctor, which compares.
+#[cfg(feature = "github-emails")]
 pub fn gh_emails() -> Gh {
     let Ok(out) = Command::new("gh")
         .args(["api", "user/emails", "--jq", ".[].email"])
@@ -95,6 +100,7 @@ pub fn gh_emails() -> Gh {
 
 // Saves the account's emails for the hook to read. Never fails setup: each
 // way gh can fall short prints one line and leaves any existing file.
+#[cfg(feature = "github-emails")]
 fn save_emails() {
     match gh_emails() {
         Gh::Emails(emails) => {
@@ -122,8 +128,9 @@ fn save_emails() {
     }
 }
 
-// Writes the pre-push hook into the global git config, then saves the emails
-// of your GitHub account. Exits 1 only when the hook could not be written.
+// Writes the pre-push hook into the global git config, then (with the
+// github-emails feature) saves the emails of your GitHub account. Exits 1 only
+// when the hook could not be written.
 pub fn run() -> i32 {
     let set = git_set("hook.angerona.event", "pre-push")
         .and_then(|_| git_set("hook.angerona.command", &hook_command()));
@@ -134,6 +141,7 @@ pub fn run() -> i32 {
     println!(
         "angerona: set hook.angerona.event and hook.angerona.command in your global git config"
     );
+    #[cfg(feature = "github-emails")]
     save_emails();
     0
 }

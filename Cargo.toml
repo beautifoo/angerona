@@ -16,6 +16,10 @@ curl = { version = "0.4", default-features = false }
 [target.'cfg(target_os = "linux")'.dependencies]
 curl = { version = "0.4", features = ["ssl", "static-curl", "static-ssl"] }
 
+[features]
+# Reads the emails of your GitHub account through gh; unfinished, off by default.
+github-emails = []
+
 [profile.release]
 strip = "none"
 

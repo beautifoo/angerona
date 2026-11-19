@@ -27,3 +27,8 @@ jobs:
       - name: git is 2.54 or later
         run: git --version | awk '{split($3, v, "."); exit !(v[1] > 2 || (v[1] == 2 && v[2] >= 54))}'
       - run: bats test/
+      # github-emails is off by default and still built and tested on its own.
+      - run: cargo clippy --all-targets --locked --features github-emails -- -D warnings
+      - run: cargo test --locked --features github-emails
+      - run: cargo build --locked --features github-emails
+      - run: ANGERONA_FEATURES=github-emails bats test/

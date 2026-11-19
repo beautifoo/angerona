@@ -38,22 +38,6 @@ the PATH git gives the hook. Where angerona isn't on that PATH, as on a
 machine without it, it prints `angerona not installed, push not checked` and
 lets the push go.
 
-Setup also asks `gh` for the emails of your GitHub account and saves the ones
-that aren't noreply addresses to `~/.config/angerona/emails` (mode 600,
-`$XDG_CONFIG_HOME/angerona/emails` when that is set). That is how angerona
-knows a personal email that no git config holds.
-
-Setup asks gh only for the read-only `user:email` scope. If gh lacks it, setup
-prints the command to add it, and you run it yourself:
-
-```sh
-gh auth refresh -h github.com -s user:email
-angerona setup
-```
-
-angerona never changes your gh login. Without gh, only the emails in your git
-config are known.
-
 Then check your git settings:
 
 ```sh
@@ -62,9 +46,9 @@ angerona doctor
 
 `doctor` prints problems, each with its fix, and notes. It checks
 `user.useConfigOnly`, a noreply global `user.email`, an identity per host with
-`includeIf`, the hook, that angerona can be found on your PATH, the emails
-file against your GitHub account, a signing key that is an email, a machine
-name too short or generic to match, and your git version.
+`includeIf`, the hook, that angerona can be found on your PATH, a signing key
+that is an email, a machine name too short or generic to match, and your git
+version.
 It exits 1 when it finds a problem; notes alone don't fail.
 
 ## What counts as you
@@ -73,9 +57,10 @@ All of it is found on the machine, with nothing to list by hand.
 
 - **Emails:** every `user.email` in every git config file, including each
   `include` and `includeIf` whatever its condition, plus `EMAIL`,
-  `GIT_AUTHOR_EMAIL` and `GIT_COMMITTER_EMAIL`, plus your GitHub account's
-  emails. A noreply address (GitHub's `<id>+<user>@users.noreply.github.com`
-  and the like) is safe to publish and never counts.
+  `GIT_AUTHOR_EMAIL` and `GIT_COMMITTER_EMAIL`. A noreply address (GitHub's
+  `<id>+<user>@users.noreply.github.com` and the like) is safe to publish and
+  never counts. An email set in no git config on this machine is caught only as
+  the committer of an unpublished commit or the tagger of a pushed tag.
 - **Home path:** your home directory, `/Users/<login>` and `/home/<login>`,
   also in escaped forms such as JSON's `\/`, `%2F` or `file:///`.
 - **Login name:** after a home path, in `<login>@<host>`, as

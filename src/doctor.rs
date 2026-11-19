@@ -51,6 +51,7 @@ fn git_global_true(key: &str) -> bool {
 
 // The addresses the emails file holds, lowercased and sorted; None when the
 // file is missing.
+#[cfg(feature = "github-emails")]
 fn saved_emails() -> Option<Vec<String>> {
     let text = fs::read_to_string(details::emails_path()?).ok()?;
     let mut emails: Vec<String> = text
@@ -125,7 +126,9 @@ pub fn run() -> i32 {
         }
     }
 
+    #[cfg(feature = "github-emails")]
     let saved = saved_emails();
+    #[cfg(feature = "github-emails")]
     match setup::gh_emails() {
         setup::Gh::Emails(mut now) => {
             now.sort();

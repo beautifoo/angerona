@@ -38,6 +38,7 @@ const GENERIC_HOSTS: &[&str] = &[
     "computer",
 ];
 
+#[cfg(feature = "github-emails")]
 const SETUP_WHERE: &str = "GitHub account (angerona setup)";
 
 // What this machine says about you, read raw; discover turns it into Details.
@@ -47,6 +48,7 @@ pub struct Machine {
     pub hosts: Vec<String>,
     pub env_emails: Vec<String>,
     pub config_files: Vec<PathBuf>,
+    #[cfg(feature = "github-emails")]
     pub emails_file: Option<PathBuf>,
 }
 
@@ -75,6 +77,7 @@ fn config_home() -> Option<PathBuf> {
 }
 
 // Where setup keeps the addresses it learned from your GitHub account.
+#[cfg(feature = "github-emails")]
 pub fn emails_path() -> Option<PathBuf> {
     config_home().map(|c| c.join("angerona").join("emails"))
 }
@@ -141,6 +144,7 @@ pub fn machine() -> Machine {
         hosts,
         env_emails,
         config_files,
+        #[cfg(feature = "github-emails")]
         emails_file: emails_path().filter(|p| p.exists()),
     }
 }
@@ -218,6 +222,7 @@ pub fn discover(m: &Machine) -> Details {
         .map(|e| (e.clone(), "environment".to_string()))
         .collect();
     found.extend(config_values(&m.config_files, "user.email"));
+    #[cfg(feature = "github-emails")]
     if let Some(text) = m
         .emails_file
         .as_ref()
@@ -294,6 +299,7 @@ mod tests {
             hosts: vec![],
             env_emails: vec![],
             config_files: files,
+            #[cfg(feature = "github-emails")]
             emails_file: None,
         }
     }
@@ -365,6 +371,7 @@ mod tests {
         assert_eq!(d.emails[0].0, "mine@home.example");
     }
 
+    #[cfg(feature = "github-emails")]
     #[test]
     fn emails_file_counts() {
         let dir = temp("emails-file");
