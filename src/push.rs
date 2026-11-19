@@ -15,9 +15,10 @@ pub struct RefLine {
 
 // A pre-push line, "<local ref> <sha> <remote ref> <remote sha>", where only
 // the local ref, as the user typed it, can hold a space: so it is read from
-// the right, and the local ref, which never leaves, is not kept. A deletion, whose sha is all zeros, publishes nothing and gives
-// None. (Its local ref reads "(delete)", but a ref can have that name.) A line
-// too short to hold a sha gives an empty one, which the walk refuses.
+// the right, and the local ref, which never leaves, is not kept. A deletion,
+// whose sha is all zeros, publishes nothing and gives None. (Its local ref
+// reads "(delete)", but a ref can have that name.) A line too short to hold a
+// sha gives an empty one, which the walk refuses.
 pub fn parse_ref_line(line: &str) -> Option<RefLine> {
     let mut fields = line.rsplitn(4, ' ');
     fields.next(); // the remote's sha
