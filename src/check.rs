@@ -38,6 +38,18 @@ pub fn what(h: &Hit) -> String {
     format!("{kind} {}", h.text)
 }
 
+// Whether a finding quotes one of these lowercased addresses, whatever rule
+// found it.
+pub fn quotes_any(f: &Finding, addresses: &[String]) -> bool {
+    let mut text = f.what.as_str();
+    for kind in ["email ", "home path ", "login ", "machine name "] {
+        if let Some(rest) = f.what.strip_prefix(kind) {
+            text = rest;
+        }
+    }
+    addresses.contains(&text.to_lowercase())
+}
+
 // Each hit in an item, at the place its label names.
 pub fn item_findings(m: &Matcher, object: &str, item: &Item, hint: &'static str) -> Vec<Finding> {
     let text = String::from_utf8_lossy(&item.bytes);
@@ -302,6 +314,16 @@ mod tests {
     fn an_identity_line_without_an_email_is_matched() {
         let raw = "tree 0\nauthor /Users/jdoe 1 +0000\ncommitter C <1+c@users.noreply.github.com> 1 +0000\n\nm\n";
         assert_eq!(hints(raw), vec![IN_HEADER]);
+    }
+
+    #[test]
+    fn quotes_any_reads_past_the_kind_and_case() {
+        let f = Finding {
+            at: "x".to_string(),
+            what: "login JDoe@jdoes-laptop.local".to_string(),
+            hint: IN_FILE,
+        };
+        assert!(quotes_any(&f, &["jdoe@jdoes-laptop.local".to_string()]));
     }
 
     #[test]

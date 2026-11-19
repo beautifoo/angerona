@@ -1,5 +1,7 @@
 use crate::{
-    check::{Finding, IN_FILE, IN_REF, commit_findings, item_findings, tag_findings, what},
+    check::{
+        Finding, IN_FILE, IN_REF, commit_findings, item_findings, quotes_any, tag_findings, what,
+    },
     identity::machine_guessed,
     matcher::Matcher,
     push::{parents, read},
@@ -235,9 +237,16 @@ fn render_scan(plain: &[Finding], groups: &[Group]) -> String {
     out
 }
 
-// angerona scan: everything in the repo that names you, with nothing changed.
-// Any error reading the repo fails the scan, never a clean result.
-pub fn run(repo: &gix::Repository, m: &Matcher, own: &[String], all_emails: bool) -> i32 {
+// angerona scan: everything in the repo that names you, with nothing changed,
+// less what quotes an address in skip. Any error reading the repo fails the
+// scan, never a clean result.
+pub fn run(
+    repo: &gix::Repository,
+    m: &Matcher,
+    own: &[String],
+    skip: &[String],
+    all_emails: bool,
+) -> i32 {
     let shallow: HashSet<ObjectId> = match repo.shallow_commits() {
         Ok(ids) => ids.map(|v| v.iter().copied().collect()).unwrap_or_default(),
         Err(e) => {
@@ -250,7 +259,11 @@ pub fn run(repo: &gix::Repository, m: &Matcher, own: &[String], all_emails: bool
     }
     match findings(repo, m, own, &shallow) {
         Ok((history, current)) => {
-            let all: Vec<Finding> = history.into_iter().chain(current).collect();
+            let all: Vec<Finding> = history
+                .into_iter()
+                .chain(current)
+                .filter(|f| !quotes_any(f, skip))
+                .collect();
             let (plain, groups) = group(all, own, all_emails);
             if plain.is_empty() && groups.is_empty() {
                 return 0;

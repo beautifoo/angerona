@@ -59,7 +59,7 @@ fn check_push(remote: &str, url: &str) -> i32 {
         _ => (true, None),
     };
     let held = push::held(&repo, remote, url, advert);
-    let mut details = details::discover(&details::machine());
+    let (mut details, skip) = details_here();
     if !public {
         details.emails.clear();
     }
@@ -68,9 +68,7 @@ fn check_push(remote: &str, url: &str) -> i32 {
     let mut found = push::outgoing(&repo, &refs, &held)
         .and_then(|out| check::push_findings(&repo, &out, &refs, &m, &own))
         .unwrap_or_else(|e| fail(&format!("git failed reading the push ({e})")));
-    if !public {
-        found.retain(|f| !f.what.starts_with("email "));
-    }
+    found.retain(|f| !check::quotes_any(f, &skip) && (public || !f.what.starts_with("email ")));
     if found.is_empty() {
         return 0;
     }
@@ -87,6 +85,15 @@ fn check_push(remote: &str, url: &str) -> i32 {
             1
         }
     }
+}
+
+// Your details, less the addresses never reported in this repo, which come
+// back too, to drop from what another rule finds.
+fn details_here() -> (details::Details, Vec<String>) {
+    let mut details = details::discover(&details::machine());
+    let skip = details::skipped_here();
+    details.emails.retain(|(e, _)| !skip.contains(e));
+    (details, skip)
 }
 
 // A URL that can never be probed is asked about on every push, and nothing
@@ -106,10 +113,10 @@ fn scan(all_emails: bool) -> i32 {
             return 1;
         }
     };
-    let details = details::discover(&details::machine());
+    let (details, skip) = details_here();
     let m = matcher::Matcher::new(&details);
     let own: Vec<String> = details.emails.iter().map(|(e, _)| e.clone()).collect();
-    scan::run(&repo, &m, &own, all_emails)
+    scan::run(&repo, &m, &own, &skip, all_emails)
 }
 
 fn main() {

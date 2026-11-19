@@ -213,6 +213,16 @@ pub fn config_values(files: &[PathBuf], key: &str) -> Vec<(String, String)> {
     found
 }
 
+// The addresses never reported in the repo git runs in: its own user.email,
+// as git resolves it there, is the one that repo is meant to carry. A git
+// that fails gives none, so more is reported, not less.
+pub fn skipped_here() -> Vec<String> {
+    command_line("git", &["config", "--get", "user.email"])
+        .map(|e| e.to_lowercase())
+        .into_iter()
+        .collect()
+}
+
 // Gathers every email, the home path, login and host names, and says in weak
 // which login or host was left out for being too common.
 pub fn discover(m: &Machine) -> Details {

@@ -193,6 +193,22 @@ push_unchecked() {
 	has "author  email me@home.example"
 }
 
+@test "the repo's own email is not reported" {
+	repo
+	git config user.email me@home.example
+	commit a.txt "mail me@home.example"
+	run git push origin main
+	[ "$status" -eq 0 ]
+}
+
+@test "another own email is still reported in that repo" {
+	repo
+	git config user.email work@corp.example
+	commit a.txt "mail me@home.example"
+	run git push origin main
+	has "a.txt:1  email me@home.example"
+}
+
 @test "my email in a Co-authored-by trailer blocks" {
 	repo
 	printf 'hello\n' >a.txt
@@ -643,6 +659,14 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 }
 
 
+
+@test "scan does not report the repo's own email" {
+	repo
+	git config user.email me@home.example
+	commit a.txt hello
+	run "$AG" scan
+	[ "$status" -eq 0 ]
+}
 
 @test "scan groups an email into one line" {
 	repo
