@@ -314,6 +314,20 @@ push_unchecked() {
 	commit a.txt /Users/jdoe/x
 	ANGERONA_TEST_VISIBILITY=private run git push origin main
 	[ "$status" -eq 1 ]
+	has "a.txt:1  home path /Users/jdoe"
+}
+
+@test "a private push asks the remote nothing" {
+	repo
+	commit a.txt /Users/jdoe/x
+	# Opening the push transport, or asking for a password, runs this.
+	printf '#!/bin/sh\ntouch "%s/asked"\nexit 1\n' "$BATS_TEST_TMPDIR" >"$BATS_TEST_TMPDIR/ask"
+	chmod +x "$BATS_TEST_TMPDIR/ask"
+	export GIT_SSH_COMMAND=$BATS_TEST_TMPDIR/ask GIT_ASKPASS=$BATS_TEST_TMPDIR/ask
+	printf 'refs/heads/main %s refs/heads/main %040d\n' "$(git rev-parse HEAD)" 0 >"$BATS_TEST_TMPDIR/refs"
+	ANGERONA_TEST_VISIBILITY=private run "$AG" check-push origin ssh://git@127.0.0.1:9/r.git <"$BATS_TEST_TMPDIR/refs"
+	[ ! -e "$BATS_TEST_TMPDIR/asked" ]
+	has "a.txt:1  home path /Users/jdoe"
 }
 
 @test "my email to a private remote passes" {
@@ -434,6 +448,7 @@ with_tty() {
 	export ANGERONA_TEST_VISIBILITY=unprobeable
 	run with_tty $'n\nn\n' git push origin main
 	[ "$status" -eq 1 ]
+	has "a.txt:1  home path /Users/jdoe"
 }
 
 @test "an unprobeable URL with no terminal is checked as public" {

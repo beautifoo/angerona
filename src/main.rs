@@ -58,7 +58,7 @@ fn check_push(remote: &str, url: &str) -> i32 {
         Visibility::Unprobeable => (ask_if_public(url), None),
         _ => (true, None),
     };
-    let held = push::held(&repo, remote, url, advert);
+    let held = push::held(&repo, remote, url, public, advert);
     let (mut details, skip) = details_here();
     if !public {
         details.emails.clear();

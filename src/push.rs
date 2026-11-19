@@ -81,18 +81,21 @@ pub fn may_ask(url: &str) -> bool {
 }
 
 // The objects the remote holds, and this repo has: the ids the public check
-// was given; else the remote's refs, listed over the push transport at the
-// URL git gives, which git has already rewritten, so it isn't rewritten
-// again; else its remote-tracking refs, which can be stale. If all of them
-// fail, nothing is held, and each pushed ref's whole history is scanned.
+// was given; else, for a public push, the remote's refs, listed over the push
+// transport at the URL git gives, which git has already rewritten, so it
+// isn't rewritten again; else its remote-tracking refs, which can be stale.
+// A private push never connects: it could ask for a password or hang. If all
+// of them fail, nothing is held, and each pushed ref's whole history is
+// scanned.
 pub fn held(
     repo: &gix::Repository,
     remote: &str,
     url: &str,
+    public: bool,
     advert: Option<Vec<ObjectId>>,
 ) -> Vec<ObjectId> {
     let ids = advert
-        .or_else(|| listed(repo, remote, url))
+        .or_else(|| public.then(|| listed(repo, remote, url)).flatten())
         .or_else(|| tracking(repo, remote));
     let Some(ids) = ids else {
         eprintln!(
