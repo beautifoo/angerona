@@ -93,7 +93,7 @@ pub fn run() -> i32 {
         .output()
         .is_ok_and(|o| o.status.success() && !o.stdout.is_empty());
     if !includes {
-        notes += "no includeIf in your global git config; give each host its own email with includeIf \"hasconfig:remote.*.url:git@<host>:**\" and a path to a file that sets user.email\n";
+        notes += "no includeIf in your global git config; give each host its own email with includeIf \"hasconfig:remote.*.url:git@<host>:*/**\" and a path to a file that sets user.email\n";
     }
 
     let hook = git_global("hook.angerona.command") == Some(setup::hook_command())

@@ -941,6 +941,23 @@ good_setup() {
 	has "no global user.email"
 }
 
+@test "doctor suggests an includeIf that matches owner/repo remotes" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	git config --global --remove-section includeIf.gitdir:/nonexistent/
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	has 'includeIf "hasconfig:remote.*.url:git@<host>:*/**"'
+}
+
+@test "the suggested includeIf pattern picks the email for an owner/repo remote" {
+	git config --global "includeIf.hasconfig:remote.*.url:git@corp.example:*/**.path" "$BATS_TEST_TMPDIR/corp.gitconfig"
+	git config --file "$BATS_TEST_TMPDIR/corp.gitconfig" user.email work@corp.example
+	git init -q "$BATS_TEST_TMPDIR/h"
+	git -C "$BATS_TEST_TMPDIR/h" remote add origin git@corp.example:team/app.git
+	run git -C "$BATS_TEST_TMPDIR/h" config --get user.email
+	[ "$output" = work@corp.example ]
+}
+
 @test "doctor ends with the scan reminder" {
 	fake_gh 'printf "%s\n" Me@Personal.Example'
 	good_setup
