@@ -52,9 +52,9 @@ commit() {
 	git commit -qm "add $1"
 }
 
-# Pushes as the private remote, so nothing is checked.
-push_private() {
-	ANGERONA_TEST_VISIBILITY=private git push -q origin "$@"
+# Pushes without the hook, to give the remote a history.
+push_unchecked() {
+	git push --no-verify -q origin "$@"
 }
 
 @test "usage on an unknown command" {
@@ -81,7 +81,7 @@ push_private() {
 @test "an old home path in an edited file passes" {
 	repo
 	commit a.txt /Users/jdoe/x
-	push_private main
+	push_unchecked main
 	printf 'more\n' >>a.txt
 	git commit -qam more
 	run git push origin main
@@ -107,7 +107,7 @@ push_private() {
 	git merge -q side || true
 	printf '/Users/jdoe/x\n' >a.txt
 	git commit -qam merge
-	push_private side
+	push_unchecked side
 	run git push origin main
 	[ "$status" -eq 1 ]
 	has "a.txt:1"
@@ -116,10 +116,10 @@ push_private() {
 @test "a merged-in side is not re-reported" {
 	repo
 	commit a.txt one
-	push_private main
+	push_unchecked main
 	git switch -q -c side
 	commit b.txt /Users/jdoe/x
-	push_private side
+	push_unchecked side
 	git switch -q main
 	commit c.txt two
 	git merge -q --no-edit side
@@ -130,7 +130,7 @@ push_private() {
 @test "a pure rename passes" {
 	repo
 	commit a.txt /Users/jdoe/x
-	push_private main
+	push_unchecked main
 	git mv a.txt b.txt
 	git commit -qm rename
 	run git push origin main
@@ -142,7 +142,7 @@ push_private() {
 	printf 'one\ntwo\nthree\n/Users/jdoe/old\n' >a.txt
 	git add a.txt
 	git commit -qm a
-	push_private main
+	push_unchecked main
 	git mv a.txt b.txt
 	printf '/Users/jdoe/new\n' >>b.txt
 	git commit -qam rename
@@ -225,7 +225,7 @@ push_private() {
 @test "an upstream contributor's email on a fork sync passes" {
 	repo
 	commit a.txt one
-	push_private main
+	push_unchecked main
 	git init -q --bare "$BATS_TEST_TMPDIR/upstream.git"
 	git clone -q "$BATS_TEST_TMPDIR/origin.git" "$BATS_TEST_TMPDIR/up"
 	(
@@ -293,9 +293,27 @@ push_private() {
 	[ "$status" -eq 0 ]
 }
 
-@test "a private remote is not checked" {
+@test "a home path to a private remote blocks" {
 	repo
 	commit a.txt /Users/jdoe/x
+	ANGERONA_TEST_VISIBILITY=private run git push origin main
+	[ "$status" -eq 1 ]
+}
+
+@test "my email to a private remote passes" {
+	repo
+	printf 'hello\n' >a.txt
+	git add a.txt
+	git -c user.email=me@home.example commit -qm a
+	ANGERONA_TEST_VISIBILITY=private run git push origin main
+	[ "$status" -eq 0 ]
+}
+
+@test "an unknown committer email to a private remote passes" {
+	repo
+	printf 'hello\n' >a.txt
+	git add a.txt
+	GIT_COMMITTER_EMAIL=bob@corp.example git commit -qm a
 	ANGERONA_TEST_VISIBILITY=private run git push origin main
 	[ "$status" -eq 0 ]
 }
@@ -303,7 +321,7 @@ push_private() {
 @test "a deletion-only push passes" {
 	repo
 	commit a.txt /Users/jdoe/x
-	push_private main main:other
+	push_unchecked main main:other
 	run git push origin :other
 	[ "$status" -eq 0 ]
 }
@@ -382,15 +400,23 @@ with_tty() {
 
 @test "an unprobeable URL asks on every push and saves nothing" {
 	repo
-	commit a.txt /Users/jdoe/x
+	commit a.txt me@home.example
 	export ANGERONA_TEST_VISIBILITY=unprobeable
 	run with_tty $'n\n' git push origin main
 	[ "$status" -eq 0 ]
-	commit b.txt /Users/jdoe/y
+	commit b.txt me@home.example
 	run with_tty $'n\n' git push origin main
 	[ "$status" -eq 0 ]
 	has "Treat"
 	run git config --local --get-regexp '^angerona\.'
+	[ "$status" -eq 1 ]
+}
+
+@test "a home path to a URL answered private blocks" {
+	repo
+	commit a.txt /Users/jdoe/x
+	export ANGERONA_TEST_VISIBILITY=unprobeable
+	run with_tty $'n\nn\n' git push origin main
 	[ "$status" -eq 1 ]
 }
 

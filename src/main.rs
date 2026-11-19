@@ -50,19 +50,27 @@ fn check_push(remote: &str, url: &str) -> i32 {
         fail("this repo has grafts, which gix ignores");
     }
     // A URL that can't be probed, or a failure to ask, is checked as public.
-    let advert = match public::probe(url) {
-        Visibility::Private => return 0,
-        Visibility::Public(ids) if !ids.is_empty() => Some(ids),
-        Visibility::Unprobeable if !unprobeable_is_public(url) => return 0,
-        _ => None,
+    // A private one is still checked for the home path, login and machine
+    // name, which mean nothing off this machine; emails only when public.
+    let (public, advert) = match public::probe(url) {
+        Visibility::Private => (false, None),
+        Visibility::Public(ids) if !ids.is_empty() => (true, Some(ids)),
+        Visibility::Unprobeable => (ask_if_public(url), None),
+        _ => (true, None),
     };
     let held = push::held(&repo, remote, url, advert);
-    let details = details::discover(&details::machine());
+    let mut details = details::discover(&details::machine());
+    if !public {
+        details.emails.clear();
+    }
     let m = matcher::Matcher::new(&details);
     let own: Vec<String> = details.emails.iter().map(|(e, _)| e.clone()).collect();
-    let found = push::outgoing(&repo, &refs, &held)
+    let mut found = push::outgoing(&repo, &refs, &held)
         .and_then(|out| check::push_findings(&repo, &out, &refs, &m, &own))
         .unwrap_or_else(|e| fail(&format!("git failed reading the push ({e})")));
+    if !public {
+        found.retain(|f| !f.what.starts_with("email "));
+    }
     if found.is_empty() {
         return 0;
     }
@@ -84,7 +92,7 @@ fn check_push(remote: &str, url: &str) -> i32 {
 // A URL that can never be probed is asked about on every push, and nothing
 // is saved. A failure to ask is checked as public. The URL is shown without
 // its user and password.
-fn unprobeable_is_public(url: &str) -> bool {
+fn ask_if_public(url: &str) -> bool {
     let shown = push::without_credentials(url);
     tty::ask(&format!("Treat {shown} as public? [Y/n]"), true).unwrap_or(true)
 }

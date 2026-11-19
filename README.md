@@ -1,8 +1,8 @@
 # angerona
 
-Keeps you out of what you publish with git. Before a push to a public repo, it
-checks that nothing in it names you: your emails, your home path, your login
-name or your machine's name.
+Keeps you out of what you publish with git. Before a push, it checks that
+nothing in it names you: your emails (when the repo is public), your home
+path, your login name or your machine's name.
 
 Secrets are for gitleaks and friends. angerona covers the details that point
 back at you, such as a work email on a cherry-picked commit, a `Co-authored-by`
@@ -75,18 +75,19 @@ name that is short or generic, such as `dev` or `Mac`, is skipped, and
 
 On `git push`, the hook first asks whether the repo you push to is public. It
 makes one plain request, with no credentials, to the repo's address. A repo
-anyone can read is public. A private repo, a local path or a `file://` URL
-passes with nothing checked.
+anyone can read is public. A private repo, a local path or a `file://` URL is
+private.
 
-For a public repo, it checks only what the push sends that the remote doesn't
-have yet: added lines, file names, binary files, authors, committers, taggers,
-trailers such as `Co-authored-by`, commit and tag messages, and the remote
-branch name.
+It checks only what the push sends that the remote doesn't have yet: added
+lines, file names, binary files, authors, committers, taggers, trailers such
+as `Co-authored-by`, commit and tag messages, and the remote branch name.
 
-- Your emails are flagged anywhere in that.
-- Another person's email is flagged only as the committer of an unpublished
-  commit, or the tagger of a tag. A fork sync or a patch you apply stays quiet.
-- Home path, login and machine name are flagged everywhere.
+- Home path, login and machine name are flagged everywhere, in private repos
+  too: they only make sense on your machine.
+- For a public repo, your emails are flagged anywhere in that.
+- For a public repo, another person's email is flagged only as the committer
+  of an unpublished commit, or the tagger of a tag. A fork sync or a patch you
+  apply stays quiet.
 
 Each finding says where it is and how to fix it. Then, with a terminal, it
 asks:
@@ -137,7 +138,8 @@ Exit 0 means nothing found, 1 means findings or an error.
 
 ## What it won't catch
 
-- "Internal" repos of an enterprise host count as private.
+- "Internal" repos of an enterprise host count as private, so emails pushed
+  there aren't checked.
 - LFS content and compressed files (zip, gzip, images) aren't read.
 - Commits made on the forge's website skip the hook. Turn on the forge's email
   privacy setting (GitHub: Keep my email addresses private).

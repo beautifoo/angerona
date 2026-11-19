@@ -13,7 +13,7 @@ It must be useful to other developers, not only the owner. The first version pro
 ## Goals
 
 - Zero setup for what counts as you: everything is found on the machine.
-- Check only what goes to a **public repo**. Pushes to private repos (work, personal) pass untouched.
+- Check emails only in what goes to a **public repo**. Pushes to private repos (work, personal) are checked only for the home path, login and machine name, which make sense on this machine alone.
 - One hook, at push time, the last local point before publishing. No commit hook: personal details rarely change, and a push check catches both carried-over commits and file contents.
 - A one-off `scan` for an existing repo before making it public.
 - A `doctor` that checks the git settings that prevent most leaks in the first place.
@@ -66,11 +66,11 @@ Only with `--features github-emails`: setup also reads your GitHub account's ema
 **1. Is the target public?** Judge the URL git passes as the hook's second argument (it already has `pushurl` and `pushInsteadOf` applied; git runs the hook once per push URL). Take its https form: SSH forms are mapped by resolving the host with `ssh -G <host>` (stdin closed) and reading `hostname`, dropping the SSH port, mapping `ssh.github.com` to `github.com`. Then make **one plain HTTP GET** of `<https-url>/info/refs?service=git-upload-pack`, with no credentials of any kind (user and password stripped from the URL; no netrc, no git credential helpers, no `insteadOf`; not through `git ls-remote`, which was shown to send `GIT_ASKPASS`, netrc and URL-scoped header credentials, and to follow `insteadOf` to SSH), following redirects, `--connect-timeout 3 --max-time 5` or equivalent.
 
 - **Public:** final 200 with content type `application/x-git-upload-pack-advertisement`.
-- **Private:** final 401, 403 or 404, or a local path or `file://` URL (your own disk). The push passes unchecked.
+- **Private:** final 401, 403 or 404, or a local path or `file://` URL (your own disk). The push is checked for the home path, login and machine name only: no emails, yours or others'.
 - **Can never be probed** (a steady answer that isn't git's): an SSH host with no https mapping, connection refused, a sign-in or other HTML page, a 200 with another content type, a TLS certificate error (self-signed internal host).
 - **Passing failure:** timeout, DNS failure, 5xx, 429.
 
-For a URL that can never be probed: ask on `/dev/tty` on every push, `Treat <url> as public? [Y/n]`, and save nothing. With no terminal: check as public. After a passing failure, **never ask**: check the push as public. A URL answered as private passes unchecked, as a private one does.
+For a URL that can never be probed: ask on `/dev/tty` on every push, `Treat <url> as public? [Y/n]`, and save nothing. With no terminal: check as public. After a passing failure, **never ask**: check the push as public. A URL answered as private is checked as private (above).
 
 The response body of the public check is the remote's ref list, so it also gives what the remote already has (step 2) with no extra request. When there is no such list (a passing failure, or a URL answered or assumed public), list the remote's refs over the push transport itself, with the user's normal credentials, as `git push` does (today's `push::held`); if that fails too, use that remote's remote-tracking refs. The no-credentials rule is for deciding public or private; this listing goes to the place the push goes anyway.
 
@@ -85,7 +85,7 @@ The response body of the public check is the remote's ref list, so it also gives
 - **Commit and tag messages**, signatures stripped.
 - **The remote ref name** only (the local name never reaches the remote).
 
-**Email rule:** your emails are flagged anywhere in any outgoing commit: identities, trailers, messages, lines, paths, binaries. Any other non-noreply email is flagged **only as the committer of an unpublished commit or the tagger of a tag in the push**, the fields that say who ran git. So fork syncs and other people's already-public commits stay quiet; a patch you apply (`git am`, a cherry-pick of a contributor's branch) has you as committer and the contributor as author, and stays quiet; a commit made on another machine under a personal email set nowhere on this one is still caught. Other people's emails in authors, trailers and content are never flagged. Home path, login and machine-name rules apply to all outgoing content.
+**Email rule:** your emails are flagged anywhere in any outgoing commit: identities, trailers, messages, lines, paths, binaries. Any other non-noreply email is flagged **only as the committer of an unpublished commit or the tagger of a tag in the push**, the fields that say who ran git. So fork syncs and other people's already-public commits stay quiet; a patch you apply (`git am`, a cherry-pick of a contributor's branch) has you as committer and the contributor as author, and stays quiet; a commit made on another machine under a personal email set nowhere on this one is still caught. Other people's emails in authors, trailers and content are never flagged. Home path, login and machine-name rules apply to all outgoing content, in private repos too. The email rule applies only to a public repo.
 
 **4. On a finding:** list each finding (commit, where, what, a fix hint), then with a terminal (`/dev/tty` opens) ask `Push anyway? [y/N]`, default No. Never read the answer from stdin (it holds the ref lines). Without a terminal: block, and say that `git push --no-verify` pushes once past it (and also skips every other pre-push hook). The prompt mentions that other hooks may still refuse the push. Any internal error blocks.
 
@@ -126,10 +126,11 @@ Checks and prints what to fix:
 
 - The new scope, and that the first version protects one developer on their own machine.
 - Three pieces: `doctor`, pre-push hook, `scan`; plus `setup` to write the hook.
-- No commit hook. Hook only for public repos; private is fine, and `scan` covers a repo going public later.
+- No commit hook. Emails checked only for public repos; private is fine for them, and `scan` covers a repo going public later.
 - "Can't tell" → ask on every push, only for hosts that can never be probed; no terminal → check.
 - Your emails flagged anywhere in any outgoing commit; others' non-noreply emails only in commit identities, and only as committer of an unpublished commit or tagger (so applied patches stay quiet). Same in `scan`, except that `scan` reports another person's email only when it looks machine-guessed (see `angerona scan`).
 - `scan` groups its output and skips other people's chosen emails (2026-11-19): on a team repo, thousands of committer and tagger emails drowned the few real findings. The hook is unchanged.
+- The hook also checks pushes to private repos, for the home path, login and machine name only (2026-11-19): a `/Users/<you>` path only makes sense on your machine, so it is wrong in any shared repo, private or not. Emails are still checked only for public repos.
 - No way to allow a personal detail on purpose in a repo: only added lines are checked, so answering y is enough.
 - Superseded by the next line, kept for the `github-emails` follow-up: your real emails come from your GitHub account (`gh api user/emails`), read once by `setup` into a private file; the owner adds the read-only `user:email` scope to gh himself when setup asks (GitHub's `X-Accepted-OAuth-Scopes` for `/user/emails` is `user, user:email`, checked 2026-11-18). (Reopened 2026-11-18 after the email rule narrowed: without it a personal email set in no git config would pass as an author, in trailers and in files.)
 - By default your emails come from git config only (every `user.email` and the environment variables); the GitHub-account lookup is kept behind `--features github-emails`, off by default (2026-11-19). A saved file goes stale, an API call per push is not wanted, gh's cache can't be located without the token, and a privacy tool must not keep emails as plain text; the follow-up redoes the storage.
@@ -158,7 +159,7 @@ Checks and prints what to fix:
 - Pure renames add nothing; renamed and edited files compare with their source.
 - Short and generic logins get the machine-name floor.
 - No migration from the old hooks: nothing was released, and no machine runs them.
-- Accepted and documented gaps: "internal" enterprise repos count as private; LFS content, compressed files (zip, gzip, images) and commits made on the forge's website are not checked; a commit already on a private remote and pushed to a public one is checked for your emails and paths but not for others' emails.
+- Accepted and documented gaps: "internal" enterprise repos count as private, so emails pushed there are not checked; LFS content, compressed files (zip, gzip, images) and commits made on the forge's website are not checked; a commit already on a private remote and pushed to a public one is checked for your emails and paths but not for others' emails.
 - ADR 0001 (one hook name per event) no longer applies: there is one hook. Mark it superseded.
 
 ## Left to the builder
