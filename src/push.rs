@@ -225,7 +225,7 @@ pub fn outgoing(
         .map(|ids| ids.iter().copied().collect())
         .unwrap_or_default();
     let remote = remote_commits(repo, held, &shallow);
-    let published = remote_commits(repo, &ref_ids(repo, "refs/remotes/")?, &shallow);
+    let published = published(repo, &shallow)?;
 
     let mut out = Outgoing {
         commits: Vec::new(),
@@ -262,6 +262,18 @@ pub fn outgoing(
         }
     }
     Ok(out)
+}
+
+// Every commit a remote-tracking ref of any remote reaches.
+pub fn published(
+    repo: &gix::Repository,
+    shallow: &HashSet<ObjectId>,
+) -> Result<HashSet<ObjectId>, Box<dyn Error>> {
+    Ok(remote_commits(
+        repo,
+        &ref_ids(repo, "refs/remotes/")?,
+        shallow,
+    ))
 }
 
 // Every commit the remote holds that this repo has. What can't be read is

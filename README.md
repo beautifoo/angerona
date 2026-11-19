@@ -140,7 +140,9 @@ appears. Other emails are reported only when they look machine-guessed from
 your login, as an old machine of yours would make them (`<login>@host`,
 `<login>@host.local`); `angerona scan --all-emails` lists them all. It changes nothing:
 it reports, and tells you how to fix it. History is fixed with `git filter-repo`, keeping its mailmap file
-outside the repo so the old address isn't published. A shallow or partial
+outside the repo so the old address isn't published. A commit a remote already
+has gets a new commit instead, since rewriting shared history needs everyone
+who has it, and a current file is edited and committed. A shallow or partial
 clone gets a warning to fetch the full history first.
 
 Exit 0 means nothing found, 1 means findings or an error.

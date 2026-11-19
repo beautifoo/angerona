@@ -1,10 +1,8 @@
 use crate::{
-    check::{
-        Finding, IN_FILE, IN_REF, commit_findings, item_findings, quotes_any, tag_findings, what,
-    },
+    check::{Finding, IN_REF, commit_findings, item_findings, quotes_any, tag_findings, what},
     identity::machine_guessed,
     matcher::Matcher,
-    push::{parents, read},
+    push::{parents, published, read},
     text::{blob_item, name_item},
 };
 use gix::{ObjectId, objs::Kind};
@@ -15,6 +13,9 @@ use std::{
 };
 
 const FILTER: &str = "fix history with git filter-repo (keep its mailmap file outside the repo)";
+const PUSHED: &str =
+    "already pushed: fix it in a new commit; rewriting shared history needs everyone who has it";
+const IN_CURRENT: &str = "edit the file and commit";
 const PARTIAL: &str = "angerona: this clone is shallow or partial; run git fetch --unshallow \
                        (or a full clone) first, or the report misses old commits";
 
@@ -30,7 +31,8 @@ fn incomplete(repo: &gix::Repository, shallow: &HashSet<ObjectId>) -> bool {
 }
 
 // Every commit and tag reachable from any ref, each once, and every ref name,
-// as unpublished; then each file of HEAD, whole.
+// as unpublished, but a commit a remote already has gets the hint for that;
+// then each file of HEAD, whole.
 fn findings(
     repo: &gix::Repository,
     m: &Matcher,
@@ -59,6 +61,7 @@ fn findings(
     if !repo.head()?.is_unborn() {
         stack.push(repo.head_id()?.detach());
     }
+    let published = published(repo, shallow)?;
     let mut seen = HashSet::new();
     let mut commits = 0;
     let mut last = Instant::now();
@@ -69,7 +72,11 @@ fn findings(
         let o = read(repo, id)?;
         match o.kind {
             Kind::Commit => {
-                history.extend(commit_findings(repo, id, true, m, own)?);
+                let mut found = commit_findings(repo, id, true, m, own)?;
+                if published.contains(&id) {
+                    found.iter_mut().for_each(|f| f.hint = PUSHED);
+                }
+                history.extend(found);
                 stack.extend(parents(id, &o.data, shallow, hash));
                 commits += 1;
                 if last.elapsed() >= Duration::from_secs(2) {
@@ -99,13 +106,13 @@ fn findings(
                     m,
                     "current",
                     &blob_item(&path, &data),
-                    IN_FILE,
+                    IN_CURRENT,
                 ));
                 current.extend(item_findings(
                     m,
                     "current",
                     &name_item("file", path),
-                    IN_FILE,
+                    IN_CURRENT,
                 ));
             }
         }
@@ -197,6 +204,12 @@ fn group(
             g.hints.push(f.hint);
         }
     }
+    // One unpublished commit means the address is still fixed by a rewrite.
+    for g in &mut groups {
+        if g.hints.iter().any(|h| *h != PUSHED) {
+            g.hints.retain(|h| *h != PUSHED);
+        }
+    }
     groups.sort_by_key(|g| {
         (
             !g.mine,
@@ -207,7 +220,8 @@ fn group(
 }
 
 // The lines: each non-email finding, then each address on one line, then
-// each fix once.
+// each fix once, and filter-repo last when some history no remote has needs a
+// rewrite.
 fn render_scan(plain: &[Finding], groups: &[Group]) -> String {
     let mut out = String::new();
     let mut hints = Vec::new();
@@ -238,6 +252,9 @@ fn render_scan(plain: &[Finding], groups: &[Group]) -> String {
                 hints.push(h);
             }
         }
+    }
+    if hints.iter().any(|h| ![PUSHED, IN_CURRENT].contains(h)) {
+        hints.push(FILTER);
     }
     for hint in hints {
         out += &format!("fix: {hint}\n");
@@ -277,12 +294,7 @@ pub fn run(
             if plain.is_empty() && groups.is_empty() {
                 return 0;
             }
-            let from_history =
-                !groups.is_empty() || plain.iter().any(|f| !f.at.starts_with("current "));
             print!("{}", render_scan(&plain, &groups));
-            if from_history {
-                println!("fix: {FILTER}");
-            }
             1
         }
         Err(e) => {

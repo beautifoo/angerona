@@ -691,6 +691,31 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	has "current a.txt:1"
 }
 
+@test "scan says to fix a pushed commit in a new commit" {
+	repo
+	commit a.txt /Users/jdoe/x
+	push_unchecked main
+	run "$AG" scan
+	has "already pushed: fix it in a new commit; rewriting shared history needs everyone who has it"
+	lacks "filter-repo"
+	lacks "amend or rebase"
+}
+
+@test "scan keeps rewrite hints for unpushed commits" {
+	repo
+	commit a.txt /Users/jdoe/x
+	run "$AG" scan
+	has "amend or rebase"
+	has "filter-repo"
+}
+
+@test "scan says to edit a current file" {
+	repo
+	commit a.txt /Users/jdoe/x
+	run "$AG" scan
+	has "edit the file and commit"
+}
+
 @test "scan skips a colleague's machine-guessed email" {
 	repo
 	commit a.txt hello
