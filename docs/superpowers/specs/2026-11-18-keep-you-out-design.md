@@ -74,7 +74,7 @@ For a URL that can never be probed: ask on `/dev/tty` on every push, `Treat <url
 
 The response body of the public check is the remote's ref list, so it also gives what the remote already has (step 2) with no extra request. When a public push has no such list (a passing failure, or a URL answered or assumed public), list the remote's refs over the push transport itself, with the user's normal credentials, as `git push` does (today's `push::held`); if that fails too, use that remote's remote-tracking refs. A private push never opens the transport, which could ask for a password or hang: it uses that remote's remote-tracking refs, and with none, scans each pushed ref's whole history. The no-credentials rule is for deciding public or private; this listing goes to the place the push goes anyway.
 
-**2. What goes out.** The remote's refs from step 1, kept only where the object exists locally, are what the remote has. Outgoing commits are the commits reachable from the pushed local shas and not from those. Remote shas from the hook's stdin are only a hint; a remote sha missing locally is ignored, never an error. **Unpublished commits** are outgoing commits no remote-tracking ref of any remote reaches. Annotated tags in the push are read directly as objects (also when they point at a commit the remote already has, or at a blob or tree). Partial clones: set `GIT_NO_LAZY_FETCH=1` or the gix equivalent, and treat a missing parent blob as "every line is new".
+**2. What goes out.** The remote's refs from step 1, kept only where the object exists locally, are what the remote has. Outgoing commits are the commits reachable from the pushed local shas and not from those. Remote shas from the hook's stdin are only a hint; a remote sha missing locally is ignored, never an error. Of those, the **unpublished commits** are the ones no remote-tracking ref of any remote reaches. Annotated tags in the push are read directly as objects (also when they point at a commit the remote already has, or at a blob or tree). Partial clones: set `GIT_NO_LAZY_FETCH=1` or the gix equivalent, and treat a missing parent blob as "every line is new".
 
 **3. What is checked, per outgoing commit:**
 
@@ -155,7 +155,7 @@ Checks and prints what to fix:
 - Matching forms for home path, login and machine name above, and the noreply heuristic.
 - Fail closed on every internal error; the one fail-open is the missing binary.
 - Identities read from raw objects (mailmap would hide real emails).
-- `scan` treats every commit as unpublished (no remote to compare against).
+- `scan` applies the unpublished-commit rule for other people's emails to every commit, since going public publishes them all; a commit a remote-tracking ref reaches only gets another fix hint.
 - The public-check outcome table (public, private, can never be probed, passing failure) above.
 - With no ref list from the public check, list refs over the push transport (public pushes only), then fall back to remote-tracking refs.
 - Pure renames add nothing; renamed and edited files compare with their source.
