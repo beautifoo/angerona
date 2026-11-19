@@ -113,10 +113,12 @@ pub fn run() -> i32 {
         problems += "angerona is not on your PATH, so the hook prints 'not checked' and lets every push through; fix: add the folder that holds angerona to your PATH\n";
     }
 
-    // A per-host includeIf file is where a signing key usually lives.
+    // A per-host includeIf file is where a signing key usually lives. A
+    // key:: value is an SSH public key in full, whose user@host comment an
+    // SSH signature doesn't carry.
     let machine = details::machine();
     for (key, file) in details::config_values(&machine.config_files, "user.signingkey") {
-        if key.contains('@') {
+        if key.contains('@') && !key.starts_with("key::") {
             problems += &format!(
                 "user.signingkey in {file} looks like an email, which signs commits with it as the key name; fix: set it to the key fingerprint\n"
             );

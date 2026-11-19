@@ -670,6 +670,15 @@ good_setup() {
 	has "user.signingkey in $BATS_TEST_TMPDIR/work.gitconfig"
 }
 
+@test "doctor passes an SSH key given in full" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	git config --global user.signingkey 'key::ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample jdoe@jdoes-laptop'
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	[ "$status" -eq 0 ]
+	lacks "user.signingkey"
+}
+
 @test "doctor takes yes for useConfigOnly" {
 	fake_gh 'printf "%s\n" Me@Personal.Example'
 	good_setup
