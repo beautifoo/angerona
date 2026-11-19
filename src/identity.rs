@@ -123,9 +123,44 @@ pub fn foreign<'a>(o: &'a Object, unpublished: bool, own: &[String]) -> Vec<&'a 
     out
 }
 
+// Whether an email looks guessed by a machine, not chosen by a person: a local
+// domain (.local, .lan, .localdomain, .(none)) or none at all, which is git's
+// login@host fallback. An empty address names nobody.
+pub fn machine_guessed(email: &str) -> bool {
+    let lower = email.to_lowercase();
+    let Some((_, domain)) = lower.rsplit_once('@') else {
+        return false;
+    };
+    !domain.is_empty()
+        && (!domain.contains('.')
+            || [".local", ".lan", ".localdomain", ".(none)"]
+                .iter()
+                .any(|s| domain.ends_with(s)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn machine_guessed_emails() {
+        for e in [
+            "x@host.local",
+            "x@host.lan",
+            "x@host.localdomain",
+            "x@host.(none)",
+            "x@host",
+        ] {
+            assert!(machine_guessed(e), "{e}");
+        }
+    }
+
+    #[test]
+    fn chosen_and_empty_emails_are_not_machine_guessed() {
+        for e in ["x@corp.example", "x@example.com", ""] {
+            assert!(!machine_guessed(e), "{e:?}");
+        }
+    }
 
     fn fields(o: &Object) -> Vec<(&str, &str)> {
         o.idents

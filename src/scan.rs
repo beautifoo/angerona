@@ -1,5 +1,6 @@
 use crate::{
-    check::{Finding, IN_FILE, IN_REF, commit_findings, item_findings, render, tag_findings, what},
+    check::{Finding, IN_FILE, IN_REF, commit_findings, item_findings, tag_findings, what},
+    identity::machine_guessed,
     matcher::Matcher,
     push::{parents, read},
     text::{blob_item, name_item},
@@ -110,9 +111,133 @@ fn findings(
     Ok((history, current))
 }
 
+// One address as the commit and tag identities name it: per field, how many
+// commits or tags, and the first and last object, in the order scan walked
+// them (refs in name order, then a stack, so not by date).
+struct Group {
+    email: String,
+    mine: bool,
+    fields: Vec<(String, &'static str, usize)>,
+    first: String,
+    last: String,
+    hints: Vec<&'static str>,
+}
+
+// Where an identity finding sits: the object's kind and short hash, and the
+// field. Any other place (a message line, a file) has more words or a colon.
+fn ident_place(at: &str) -> Option<(&'static str, &str, &str)> {
+    let mut words = at.split(' ');
+    let (kind, hash, field) = (words.next()?, words.next()?, words.next()?);
+    let kind = match kind {
+        "commit" => "commit",
+        "tag" => "tag",
+        _ => return None,
+    };
+    if words.next().is_some() || field.contains(':') {
+        return None;
+    }
+    Some((kind, hash, field))
+}
+
+// Why: on a team repo, thousands of other people's emails bury the findings.
+// Drops another person's email unless it looks machine-guessed (or all_emails),
+// and an empty one always; then folds the identity emails into one group per
+// address, yours first, then by count, highest first. The rest stay as lines.
+fn group(all: Vec<Finding>, own: &[String], all_emails: bool) -> (Vec<Finding>, Vec<Group>) {
+    let mut plain = Vec::new();
+    let mut groups: Vec<Group> = Vec::new();
+    for f in all {
+        let Some(email) = f.what.strip_prefix("email ").map(str::to_string) else {
+            plain.push(f);
+            continue;
+        };
+        let mine = own.iter().any(|e| e.to_lowercase() == email.to_lowercase());
+        if email.is_empty() || (!mine && !all_emails && !machine_guessed(&email)) {
+            continue;
+        }
+        let Some((kind, hash, field)) = ident_place(&f.at) else {
+            plain.push(f);
+            continue;
+        };
+        let i = match groups.iter().position(|g| g.email == email) {
+            Some(i) => i,
+            None => {
+                groups.push(Group {
+                    email,
+                    mine,
+                    fields: Vec::new(),
+                    first: hash.to_string(),
+                    last: String::new(),
+                    hints: Vec::new(),
+                });
+                groups.len() - 1
+            }
+        };
+        let g = &mut groups[i];
+        match g
+            .fields
+            .iter_mut()
+            .find(|(n, k, _)| n == field && *k == kind)
+        {
+            Some(entry) => entry.2 += 1,
+            None => g.fields.push((field.to_string(), kind, 1)),
+        }
+        g.last = hash.to_string();
+        if !g.hints.contains(&f.hint) {
+            g.hints.push(f.hint);
+        }
+    }
+    groups.sort_by_key(|g| {
+        (
+            !g.mine,
+            std::cmp::Reverse(g.fields.iter().map(|f| f.2).sum::<usize>()),
+        )
+    });
+    (plain, groups)
+}
+
+// The lines: each non-email finding, then each address on one line, then
+// each fix once.
+fn render_scan(plain: &[Finding], groups: &[Group]) -> String {
+    let mut out = String::new();
+    let mut hints = Vec::new();
+    for f in plain {
+        out += &format!("{}  {}\n", f.at, f.what);
+        if !hints.contains(&f.hint) {
+            hints.push(f.hint);
+        }
+    }
+    for g in groups {
+        let parts: Vec<String> = g
+            .fields
+            .iter()
+            .map(|(field, kind, n)| {
+                let s = if *n == 1 { "" } else { "s" };
+                format!("{field} in {n} {kind}{s}")
+            })
+            .collect();
+        out += &format!(
+            "email {}: {} (first {}, last {})\n",
+            g.email,
+            parts.join(", "),
+            g.first,
+            g.last
+        );
+        for h in &g.hints {
+            if !hints.contains(h) {
+                hints.push(h);
+            }
+        }
+    }
+    for hint in hints {
+        out += &format!("fix: {hint}\n");
+    }
+    out
+}
+
 // angerona scan: everything in the repo that names you, with nothing changed.
 // Any error reading the repo fails the scan, never a clean result.
-pub fn run(repo: &gix::Repository, m: &Matcher, own: &[String]) -> i32 {
+pub fn run(repo: &gix::Repository, m: &Matcher, own: &[String], all_emails: bool) -> i32 {
     let shallow: HashSet<ObjectId> = match repo.shallow_commits() {
         Ok(ids) => ids.map(|v| v.iter().copied().collect()).unwrap_or_default(),
         Err(e) => {
@@ -125,12 +250,14 @@ pub fn run(repo: &gix::Repository, m: &Matcher, own: &[String]) -> i32 {
     }
     match findings(repo, m, own, &shallow) {
         Ok((history, current)) => {
-            let from_history = !history.is_empty();
             let all: Vec<Finding> = history.into_iter().chain(current).collect();
-            if all.is_empty() {
+            let (plain, groups) = group(all, own, all_emails);
+            if plain.is_empty() && groups.is_empty() {
                 return 0;
             }
-            print!("{}", render(&all));
+            let from_history =
+                !groups.is_empty() || plain.iter().any(|f| !f.at.starts_with("current "));
+            print!("{}", render_scan(&plain, &groups));
             if from_history {
                 println!("fix: {FILTER}");
             }

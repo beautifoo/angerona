@@ -578,12 +578,66 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	has "current a.txt:1"
 }
 
-@test "scan reports any committer email" {
+@test "scan reports a machine-guessed committer email" {
+	repo
+	commit a.txt hello
+	GIT_COMMITTER_EMAIL=pat@pats-laptop.local git commit -q --amend --no-edit --allow-empty
+	run "$AG" scan
+	[ "$status" -eq 1 ]
+	has "email pat@pats-laptop.local: committer in 1 commit"
+}
+
+@test "scan skips others' chosen emails" {
 	repo
 	commit a.txt hello
 	GIT_COMMITTER_EMAIL=bob@corp.example git commit -q --amend --no-edit --allow-empty
 	run "$AG" scan
-	has bob@corp.example
+	[ "$status" -eq 0 ]
+	lacks bob@corp.example
+}
+
+@test "scan reports every email with --all-emails" {
+	repo
+	commit a.txt hello
+	GIT_COMMITTER_EMAIL=bob@corp.example git commit -q --amend --no-edit --allow-empty
+	run "$AG" scan --all-emails
+	[ "$status" -eq 1 ]
+	has "email bob@corp.example: committer in 1 commit"
+}
+
+@test "scan never reports an empty email" {
+	repo
+	commit a.txt hello
+	tree=$(git rev-parse 'HEAD^{tree}')
+	obj=$(printf 'tree %s\nauthor A <1+a@users.noreply.github.com> 1 +0000\ncommitter Name <> 1 +0000\n\nm\n' "$tree" | git hash-object -t commit -w --stdin)
+	git update-ref refs/heads/empty "$obj"
+	run "$AG" scan --all-emails
+	[ "$status" -eq 0 ]
+	lacks "email"
+}
+
+
+
+@test "scan groups an email into one line" {
+	repo
+	export GIT_AUTHOR_EMAIL=me@home.example
+	commit a.txt one
+	commit b.txt two
+	export GIT_COMMITTER_EMAIL=me@home.example
+	commit c.txt three
+	run "$AG" scan
+	[ "$status" -eq 1 ]
+	[ "$(grep -c '^email me@home.example:' <<<"$output")" -eq 1 ]
+	has "email me@home.example: author in 3 commits, committer in 1 commit (first "
+}
+
+@test "scan lists home paths before emails" {
+	repo
+	commit a.txt /Users/jdoe/x
+	GIT_COMMITTER_EMAIL=pat@pats-laptop.local git commit -q --amend --no-edit
+	run "$AG" scan
+	[[ ${lines[1]} == "current a.txt:1"* ]]
+	[[ ${lines[2]} == "email pat@pats-laptop.local:"* ]]
 }
 
 @test "scan warns on a shallow clone" {
@@ -616,13 +670,22 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	has /Users/jdoe
 }
 
-@test "scan reports any tagger email" {
+@test "scan reports a machine-guessed tagger email" {
+	repo
+	commit a.txt hello
+	GIT_COMMITTER_EMAIL=pat@pats-laptop.local git tag -a v1 -m release
+	run "$AG" scan
+	[ "$status" -eq 1 ]
+	has "email pat@pats-laptop.local: tagger in 1 tag "
+}
+
+@test "scan reports any tagger email with --all-emails" {
 	repo
 	commit a.txt hello
 	GIT_COMMITTER_EMAIL=bob@corp.example git tag -a v1 -m release
-	run "$AG" scan
+	run "$AG" scan --all-emails
 	[ "$status" -eq 1 ]
-	has bob@corp.example
+	has "email bob@corp.example: tagger in 1 tag "
 }
 
 # A setup that doctor accepts: the hook from setup (and, built with

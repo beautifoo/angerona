@@ -90,7 +90,7 @@ fn unprobeable_is_public(url: &str) -> bool {
 }
 
 // angerona scan: run by hand in a repo before it goes public.
-fn scan() -> i32 {
+fn scan(all_emails: bool) -> i32 {
     let repo = match repo::open(Path::new(".")) {
         Ok(r) => r,
         Err(e) => {
@@ -101,7 +101,7 @@ fn scan() -> i32 {
     let details = details::discover(&details::machine());
     let m = matcher::Matcher::new(&details);
     let own: Vec<String> = details.emails.iter().map(|(e, _)| e.clone()).collect();
-    scan::run(&repo, &m, &own)
+    scan::run(&repo, &m, &own, all_emails)
 }
 
 fn main() {
@@ -110,10 +110,13 @@ fn main() {
     match (arg(0), arg(1), arg(2)) {
         (Some("check-push"), Some(remote), Some(url)) => exit(check_push(remote, url)),
         (Some("doctor"), _, _) => exit(doctor::run()),
-        (Some("scan"), _, _) => exit(scan()),
+        (Some("scan"), None, _) => exit(scan(false)),
+        (Some("scan"), Some("--all-emails"), None) => exit(scan(true)),
         (Some("setup"), _, _) => exit(setup::run()),
         _ => {
-            eprintln!("usage: angerona check-push REMOTE URL | scan | doctor | setup");
+            eprintln!(
+                "usage: angerona check-push REMOTE URL | scan [--all-emails] | doctor | setup"
+            );
             exit(2)
         }
     }
