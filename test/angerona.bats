@@ -620,13 +620,21 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	has "current a.txt:1"
 }
 
-@test "scan reports a machine-guessed committer email" {
+@test "scan skips a colleague's machine-guessed email" {
 	repo
 	commit a.txt hello
 	GIT_COMMITTER_EMAIL=pat@pats-laptop.local git commit -q --amend --no-edit --allow-empty
 	run "$AG" scan
+	[ "$status" -eq 0 ]
+}
+
+@test "scan reports my own machine-guessed email" {
+	repo
+	commit a.txt hello
+	GIT_COMMITTER_EMAIL=jdoe@old-mac.local git commit -q --amend --no-edit --allow-empty
+	run "$AG" scan
 	[ "$status" -eq 1 ]
-	has "email pat@pats-laptop.local: committer in 1 commit"
+	has "email jdoe@old-mac.local: committer in 1 commit"
 }
 
 @test "scan skips others' chosen emails" {
@@ -684,10 +692,10 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 @test "scan lists home paths before emails" {
 	repo
 	commit a.txt /Users/jdoe/x
-	GIT_COMMITTER_EMAIL=pat@pats-laptop.local git commit -q --amend --no-edit
+	GIT_COMMITTER_EMAIL=jdoe@old-mac.local git commit -q --amend --no-edit
 	run "$AG" scan
 	[[ ${lines[1]} == "current a.txt:1"* ]]
-	[[ ${lines[2]} == "email pat@pats-laptop.local:"* ]]
+	[[ ${lines[2]} == "email jdoe@old-mac.local:"* ]]
 }
 
 @test "scan warns on a shallow clone" {
@@ -720,13 +728,13 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	has /Users/jdoe
 }
 
-@test "scan reports a machine-guessed tagger email" {
+@test "scan reports my own machine-guessed tagger email" {
 	repo
 	commit a.txt hello
-	GIT_COMMITTER_EMAIL=pat@pats-laptop.local git tag -a v1 -m release
+	GIT_COMMITTER_EMAIL=jdoe@old-mac.local git tag -a v1 -m release
 	run "$AG" scan
 	[ "$status" -eq 1 ]
-	has "email pat@pats-laptop.local: tagger in 1 tag "
+	has "email jdoe@old-mac.local: tagger in 1 tag "
 }
 
 @test "scan reports any tagger email with --all-emails" {

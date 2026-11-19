@@ -142,10 +142,16 @@ fn ident_place(at: &str) -> Option<(&'static str, &str, &str)> {
 }
 
 // Why: on a team repo, thousands of other people's emails bury the findings.
-// Drops another person's email unless it looks machine-guessed (or all_emails),
-// and an empty one always; then folds the identity emails into one group per
-// address, yours first, then by count, highest first. The rest stay as lines.
-fn group(all: Vec<Finding>, own: &[String], all_emails: bool) -> (Vec<Finding>, Vec<Group>) {
+// Drops another person's email unless it looks machine-guessed from your login,
+// so your own old machine (or all_emails), and an empty one always; then folds
+// the identity emails into one group per address, yours first, then by count,
+// highest first. The rest stay as lines.
+fn group(
+    all: Vec<Finding>,
+    own: &[String],
+    login: Option<&str>,
+    all_emails: bool,
+) -> (Vec<Finding>, Vec<Group>) {
     let mut plain = Vec::new();
     let mut groups: Vec<Group> = Vec::new();
     for f in all {
@@ -154,7 +160,9 @@ fn group(all: Vec<Finding>, own: &[String], all_emails: bool) -> (Vec<Finding>, 
             continue;
         };
         let mine = own.iter().any(|e| e.to_lowercase() == email.to_lowercase());
-        if email.is_empty() || (!mine && !all_emails && !machine_guessed(&email)) {
+        let local = email.rsplit_once('@').map(|(l, _)| l.to_lowercase());
+        let guessed = machine_guessed(&email) && login.map(str::to_lowercase) == local;
+        if email.is_empty() || (!mine && !all_emails && !guessed) {
             continue;
         }
         let Some((kind, hash, field)) = ident_place(&f.at) else {
@@ -245,6 +253,7 @@ pub fn run(
     m: &Matcher,
     own: &[String],
     skip: &[String],
+    login: Option<&str>,
     all_emails: bool,
 ) -> i32 {
     let shallow: HashSet<ObjectId> = match repo.shallow_commits() {
@@ -264,7 +273,7 @@ pub fn run(
                 .chain(current)
                 .filter(|f| !quotes_any(f, skip))
                 .collect();
-            let (plain, groups) = group(all, own, all_emails);
+            let (plain, groups) = group(all, own, login, all_emails);
             if plain.is_empty() && groups.is_empty() {
                 return 0;
             }

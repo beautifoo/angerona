@@ -116,7 +116,14 @@ fn scan(all_emails: bool) -> i32 {
     let (details, skip) = details_here();
     let m = matcher::Matcher::new(&details);
     let own: Vec<String> = details.emails.iter().map(|(e, _)| e.clone()).collect();
-    scan::run(&repo, &m, &own, &skip, all_emails)
+    scan::run(
+        &repo,
+        &m,
+        &own,
+        &skip,
+        details.raw_login.as_deref(),
+        all_emails,
+    )
 }
 
 fn main() {

@@ -130,10 +130,10 @@ angerona scan
 Run it in the repo. It checks every commit on every ref and every file in the
 current tree, and treats every commit as unpublished. Your details are listed
 first, one line per place, then one line per email address with how often it
-appears. Other people's emails are reported only when they look machine-guessed
-(`login@host`, `.local`, `.lan`); `angerona scan --all-emails` lists them all.
-It changes nothing: it reports, and tells you how to
-fix it. History is fixed with `git filter-repo`, keeping its mailmap file
+appears. Other emails are reported only when they look machine-guessed from
+your login, as an old machine of yours would make them (`<login>@host`,
+`<login>@host.local`); `angerona scan --all-emails` lists them all. It changes nothing:
+it reports, and tells you how to fix it. History is fixed with `git filter-repo`, keeping its mailmap file
 outside the repo so the old address isn't published. A shallow or partial
 clone gets a warning to fetch the full history first.
 
