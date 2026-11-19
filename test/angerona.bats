@@ -235,6 +235,16 @@ push_unchecked() {
 	has "a.txt:1  email me@home.example"
 }
 
+@test "a global email in a plain include is still reported" {
+	git config --global --unset user.email
+	git config --global include.path identity
+	git config --file "$BATS_TEST_TMPDIR/identity" user.email me@home.example
+	repo
+	commit a.txt "mail me@home.example"
+	run git push origin main
+	has "a.txt:1  email me@home.example"
+}
+
 @test "my email in a Co-authored-by trailer blocks" {
 	repo
 	printf 'hello\n' >a.txt

@@ -61,11 +61,11 @@ All of it is found on the machine, with nothing to list by hand.
   `<id>+<user>@users.noreply.github.com` and the like) is safe to publish and
   never counts. An email set in no git config on this machine is caught only as
   the committer of an unpublished commit or the tagger of a pushed tag.
-  The repo's own email (`git config --get user.email` in it) is never
-  reported in that repo when it differs from your top-level global
-  `user.email`: it is the identity the repo is meant to carry. A repo that
-  sets none gets the global one, which is still reported. Your other emails
-  still are.
+  The repo's own email, the email git uses in this repo, when it differs from
+  the one git uses outside any repo, is never reported in that repo: it is
+  the identity the repo is meant to carry. A repo that sets none gets the one
+  git uses outside any repo, which is still reported. Your other emails still
+  are.
 - **Home path:** your home directory, `/Users/<login>` and `/home/<login>`,
   also in escaped forms such as JSON's `\/`, `%2F` or `file:///`.
 - **Login name:** after a home path, in `<login>@<host>`, as

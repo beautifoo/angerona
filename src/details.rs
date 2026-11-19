@@ -83,7 +83,11 @@ pub fn emails_path() -> Option<PathBuf> {
 }
 
 fn command_line(program: &str, args: &[&str]) -> Option<String> {
-    let out = Command::new(program).args(args).output().ok()?;
+    line_of(Command::new(program).args(args))
+}
+
+fn line_of(command: &mut Command) -> Option<String> {
+    let out = command.output().ok()?;
     let line = String::from_utf8(out.stdout).ok()?.trim().to_string();
     (out.status.success() && !line.is_empty()).then_some(line)
 }
@@ -215,20 +219,24 @@ pub fn config_values(files: &[PathBuf], key: &str) -> Vec<(String, String)> {
 
 // The addresses never reported in the repo git runs in: its own user.email,
 // as git resolves it there, is the one that repo is meant to carry. A repo
-// that sets no email of its own gets the top-level global one, which is
-// skipped nowhere. Only an address counts: a user.email of a bare login would
-// hide the finding it equals. A git that fails gives none, so more is
-// reported, not less.
+// that sets no email of its own gets the one git uses outside any repo,
+// from / with no GIT_DIR (every config file and plain include, no
+// includeIf), which is skipped nowhere. Only an address counts: a user.email
+// of a bare login would hide the finding it equals. A git that fails gives
+// none, so more is reported, not less.
 pub fn skipped_here() -> Vec<String> {
     let lower = |e: String| e.to_lowercase();
-    let global = command_line(
-        "git",
-        &["config", "--global", "--no-includes", "--get", "user.email"],
+    let outside = line_of(
+        Command::new("git")
+            .args(["config", "--get", "user.email"])
+            .current_dir("/")
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE"),
     )
     .map(lower);
     command_line("git", &["config", "--get", "user.email"])
         .map(lower)
-        .filter(|e| is_address(e) && Some(e) != global.as_ref())
+        .filter(|e| is_address(e) && outside.as_ref().is_some_and(|o| o != e))
         .into_iter()
         .collect()
 }
