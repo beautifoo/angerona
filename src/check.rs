@@ -299,6 +299,12 @@ mod tests {
     }
 
     #[test]
+    fn an_identity_line_without_an_email_is_matched() {
+        let raw = "tree 0\nauthor /Users/jdoe 1 +0000\ncommitter C <1+c@users.noreply.github.com> 1 +0000\n\nm\n";
+        assert_eq!(hints(raw), vec![IN_HEADER]);
+    }
+
+    #[test]
     fn render_gives_each_hint_once() {
         let f = |at: &str| Finding {
             at: at.to_string(),

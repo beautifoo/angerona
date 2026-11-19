@@ -6,8 +6,9 @@ pub struct Ident {
     pub raw: String,
 }
 
-// `header` is every header line but the author, committer and tagger ones,
-// such as a tag's name or a merged tag a mergetag header holds.
+// `header` is every header line but the author, committer and tagger ones
+// with an <email>, such as a tag's name or a merged tag a mergetag header
+// holds.
 pub struct Object {
     pub idents: Vec<Ident>,
     pub header: Vec<u8>,
@@ -84,8 +85,11 @@ pub fn read(raw: &[u8]) -> Object {
         let line = String::from_utf8_lossy(raw_line);
         let mut named = false;
         for field in ["author", "committer", "tagger"] {
-            if let Some(rest) = line.strip_prefix(field).and_then(|r| r.strip_prefix(' ')) {
-                idents.extend(ident(field, rest));
+            // A line with no <email> to read stays in the header.
+            if let Some(rest) = line.strip_prefix(field).and_then(|r| r.strip_prefix(' '))
+                && let Some(i) = ident(field, rest)
+            {
+                idents.push(i);
                 named = true;
             }
         }
