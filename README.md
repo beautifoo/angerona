@@ -115,9 +115,9 @@ Treat <url> as public? [Y/n]
 ```
 
 and saves nothing. Answering n treats the repo as private. With no terminal to
-ask on, it checks the push as public. When the host doesn't answer in time or
-answers with a server error, it never asks: it checks the push as public. Any
-error while reading the push blocks it.
+ask on, it checks the push as public. When the host can't be found, doesn't
+answer in time, or answers with a server error or 429, it never asks: it checks
+the push as public. Any error while reading the push blocks it.
 
 To push once past the hook:
 

@@ -13,7 +13,7 @@ It must be useful to other developers, not only the owner. The first version pro
 ## Goals
 
 - Zero setup for what counts as you: everything is found on the machine.
-- Check emails only in what goes to a **public repo**. Pushes to private repos (work, personal) are checked only for the home path, login and machine name, which make sense on this machine alone.
+- Check emails only in what goes to a **public repo**, or to one angerona can't show is private (no terminal to ask on, or the host didn't answer). Pushes to private repos (work, personal) are checked only for the home path, login and machine name, which make sense on this machine alone.
 - One hook, at push time, the last local point before publishing. No commit hook: personal details rarely change, and a push check catches both carried-over commits and file contents.
 - A one-off `scan` for an existing repo before making it public.
 - A `doctor` that checks the git settings that prevent most leaks in the first place.
@@ -127,7 +127,7 @@ Checks and prints what to fix:
 - The new scope, and that the first version protects one developer on their own machine.
 - Three pieces: `doctor`, pre-push hook, `scan`; plus `setup` to write the hook.
 - No commit hook. Emails checked only for public repos; private is fine for them, and `scan` covers a repo going public later.
-- "Can't tell" → ask on every push, only for hosts that can never be probed; no terminal → check.
+- "Can't tell" → ask on every push, only for hosts that can never be probed, default Y: the stricter check, so answering by habit stays safe; no terminal → check as public.
 - Your emails flagged anywhere in any outgoing commit; others' non-noreply emails only in commit identities, and only as committer of an unpublished commit or tagger (so applied patches stay quiet). Same in `scan`, except that `scan` reports another person's email only when it looks machine-guessed from your login (see `angerona scan`).
 - `scan` groups its output and skips other people's chosen emails (2026-11-19): on a team repo, thousands of committer and tagger emails drowned the few real findings. The hook is unchanged.
 - The hook also checks pushes to private repos, for the home path, login and machine name only (2026-11-19): a `/Users/<you>` path only makes sense on your machine, so it is wrong in any shared repo, private or not. Emails are still checked only for public repos.
