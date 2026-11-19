@@ -366,6 +366,13 @@ push_unchecked() {
 	has "a.txt:1  home path /Users/jdoe"
 }
 
+@test "a private first push says it does not ask" {
+	repo
+	commit a.txt hello
+	ANGERONA_TEST_VISIBILITY=private run git push origin main
+	has "note: not asking private $BATS_TEST_TMPDIR/origin.git what it holds"
+}
+
 @test "my email to a private remote passes" {
 	repo
 	printf 'hello\n' >a.txt

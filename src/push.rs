@@ -98,8 +98,13 @@ pub fn held(
         .or_else(|| public.then(|| listed(repo, remote, url)).flatten())
         .or_else(|| tracking(repo, remote));
     let Some(ids) = ids else {
+        let why = if public {
+            "can't ask"
+        } else {
+            "not asking private"
+        };
         eprintln!(
-            "angerona: note: can't ask {} what it holds, scanning the whole history",
+            "angerona: note: {why} {} what it holds, scanning the whole history",
             without_credentials(url)
         );
         return Vec::new();
