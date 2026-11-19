@@ -170,7 +170,9 @@ fn list_refs(repo: &gix::Repository, url: &str) -> Option<Vec<Ref>> {
 }
 
 // Git gives the URL with its credentials, which can sit in the user field
-// too: a URL is shown without either.
+// too: a URL is shown without either. Git takes some URLs gix can't read
+// (a bad percent escape), so those lose everything up to the last @ before
+// the path by hand.
 pub fn without_credentials(url: &str) -> String {
     match gix::url::parse(url) {
         Ok(mut parsed) => {
@@ -178,7 +180,14 @@ pub fn without_credentials(url: &str) -> String {
             parsed.set_password(None);
             parsed.to_bstring().to_string()
         }
-        Err(_) => url.to_string(),
+        Err(_) => {
+            let Some((scheme, rest)) = url.split_once("://") else {
+                return url.to_string();
+            };
+            let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+            let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+            format!("{scheme}://{host}{path}")
+        }
     }
 }
 
@@ -333,6 +342,14 @@ mod tests {
         assert!(may_ask("https://github.com/o/r.git"));
         assert!(may_ask("git@github.com:o/r.git"));
         assert!(may_ask("/srv/plain.git"));
+    }
+
+    #[test]
+    fn hides_the_credentials_of_a_url_gix_cannot_read() {
+        assert_eq!(
+            without_credentials("https://me:secret@example.invalid/r%zz.git"),
+            "https://example.invalid/r%zz.git"
+        );
     }
 
     #[test]
