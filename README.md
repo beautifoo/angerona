@@ -33,11 +33,10 @@ angerona setup
 
 This writes one pre-push hook into your global git config
 (`hook.angerona.event` and `hook.angerona.command`). The hook line holds no
-home path, so it is safe in a public dotfiles repo. It also looks where
-Homebrew and cargo install angerona, so a push from an app started outside a
-terminal is checked too. On a machine without
-angerona it prints `angerona not installed, push not checked` and lets the
-push go.
+home path, so it is safe in a public dotfiles repo. It runs `angerona` from
+the PATH git gives the hook. Where angerona isn't on that PATH, as on a
+machine without it, it prints `angerona not installed, push not checked` and
+lets the push go.
 
 Setup also asks `gh` for the emails of your GitHub account and saves the ones
 that aren't noreply addresses to `~/.config/angerona/emails` (mode 600,
@@ -63,9 +62,9 @@ angerona doctor
 
 `doctor` prints problems, each with its fix, and notes. It checks
 `user.useConfigOnly`, a noreply global `user.email`, an identity per host with
-`includeIf`, the hook and whether apps started outside a terminal find
-angerona, the emails file against your GitHub account, a signing key that is
-an email, a machine name too short or generic to match, and your git version.
+`includeIf`, the hook, that angerona can be found on your PATH, the emails
+file against your GitHub account, a signing key that is an email, a machine
+name too short or generic to match, and your git version.
 It exits 1 when it finds a problem; notes alone don't fail.
 
 ## What counts as you

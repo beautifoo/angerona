@@ -55,7 +55,7 @@ An address is noreply when its local part is `noreply` or `no-reply`, or its dom
 
 ### `angerona setup`
 
-Writes the pre-push hook into the global git config (git ≥ 2.54 config-based hooks: `hook.angerona.event = pre-push`, `hook.angerona.command = …`). The command line holds no home path (bare `angerona`, or `~/...`; git runs hook commands through `sh`, so `~` expands even under a GUI app's launchd PATH). When `angerona` is not on PATH, the line prints `angerona not installed, push not checked` and exits 0: the global config is often shared through dotfiles to machines without angerona.
+Writes the pre-push hook into the global git config (git ≥ 2.54 config-based hooks: `hook.angerona.event = pre-push`, `hook.angerona.command = …`). The command line holds no home path: it runs bare `angerona`. When `angerona` is not on the PATH git gives the hook (from a terminal or an app), the line prints `angerona not installed, push not checked` and exits 0: the global config is often shared through dotfiles to machines without angerona, and putting angerona on that PATH is the machine's setup, not angerona's.
 
 Setup never sets `parallel = true`. If the global config file is a symlink (dotfiles), setup writes through it rather than replacing it.
 
@@ -101,7 +101,8 @@ Checks and prints what to fix:
 - An identity per host via `includeIf` (gitdir or `hasconfig:remote.*.url`).
 - The global `user.email` is a noreply address; lists every email angerona found and where.
 - The emails file exists and matches what `gh api user/emails` returns now; when it differs or is missing, says to run `angerona setup` again (skipped with a note when `gh` can't answer).
-- The hook is installed, the binary runs under a launchd-like PATH, git is ≥ 2.54.
+- The hook is installed, git is ≥ 2.54.
+- angerona is on the PATH doctor runs with (the PATH the hook gets for pushes from that shell); missing is a problem.
 - `user.signingkey` (or gpg's default key) is not an email address (a GPG key given as an email embeds that email in every signature); suggest the fingerprint.
 - The machine name is unique enough to match (see above).
 - A reminder to turn on the forge's email privacy setting (GitHub "Keep my email addresses private"), since commits made on the website never pass through the hook.

@@ -7,25 +7,11 @@ use std::{
     process::Command,
 };
 
-// Where Homebrew and cargo install angerona, which the PATH an app started
-// outside a terminal gives its hooks lacks. $HOME is expanded when the hook
-// runs, so no home path is written to the shared config.
-pub const APP_DIRS: &str =
-    "/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin:/home/linuxbrew/.linuxbrew/bin";
-
-// The shell that adds APP_DIRS to PATH, run by the hook line before it looks
-// angerona up, and by doctor before it does the same.
-pub fn widen_path() -> String {
-    format!("PATH=\"$PATH:{APP_DIRS}\"")
-}
-
 // Git appends "$@" to a config hook's command, so the trailing f gets the
-// remote and URL. Without angerona the push goes through with a note.
+// remote and URL. Without angerona on the PATH git gives the hook, the push
+// goes through with a note: finding it is the machine's setup.
 pub fn hook_command() -> String {
-    format!(
-        "f() {{ {}; if command -v angerona >/dev/null 2>&1; then angerona check-push \"$@\"; else echo 'angerona not installed, push not checked' >&2; fi; }}; f",
-        widen_path()
-    )
+    "f() { if command -v angerona >/dev/null 2>&1; then angerona check-push \"$@\"; else echo 'angerona not installed, push not checked' >&2; fi; }; f".to_string()
 }
 
 // Sets one global config key; git follows a symlinked config file.

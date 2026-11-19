@@ -12,6 +12,17 @@ fn executable(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
+// The path with the home folder written as ~, so doctor's output can be
+// pasted somewhere public.
+fn tilde(path: &str) -> String {
+    let home = env::var("HOME").unwrap_or_default();
+    let home = home.trim_end_matches('/');
+    match path.strip_prefix(home).filter(|rest| rest.starts_with('/')) {
+        Some(rest) if !home.is_empty() => format!("~{rest}"),
+        _ => path.to_string(),
+    }
+}
+
 // The value of one global git config key; None when unset or git can't run.
 fn git_global(key: &str) -> Option<String> {
     let out = Command::new("git")
@@ -90,22 +101,16 @@ pub fn run() -> i32 {
         problems += "the pre-push hook is missing or changed (hook.angerona.command, hook.angerona.event); fix: angerona setup\n";
     }
 
-    // The hook line's own lookup, under the bare PATH an app started outside
-    // a terminal gives its hooks.
-    let found = Command::new("/usr/bin/env")
-        .args([
-            "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
-            "sh",
-            "-c",
-            &format!("{}; command -v angerona", setup::widen_path()),
-        ])
+    // The hook line's own lookup, under the PATH this shell gives it.
+    let found = Command::new("/bin/sh")
+        .args(["-c", "command -v angerona"])
         .output()
-        .is_ok_and(|o| o.status.success());
-    if !found {
-        notes += &format!(
-            "apps started outside a terminal won't find angerona, so their pushes print 'not checked'; fix: install it in one of {}, or run angerona setup again\n",
-            setup::APP_DIRS.replace("$HOME", "~").replace(':', ", ")
-        );
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|p| !p.is_empty());
+    if found.is_none() {
+        problems += "angerona is not on your PATH, so the hook prints 'not checked' and lets every push through; fix: add the folder that holds angerona to your PATH\n";
     }
 
     // A per-host includeIf file is where a signing key usually lives.
@@ -157,6 +162,9 @@ pub fn run() -> i32 {
     }
     if problems.is_empty() {
         println!("angerona: no problems found");
+    }
+    if let Some(path) = found {
+        println!("angerona: the hook finds angerona at {}", tilde(&path));
     }
 
     println!("angerona: emails kept out of pushes:");
