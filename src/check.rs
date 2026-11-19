@@ -291,6 +291,13 @@ mod tests {
         assert_eq!(hints(&raw), vec![IN_TAG, IN_TAG]);
     }
 
+    // Only a signature's base64 is dropped, not lines a merged tag quotes.
+    #[test]
+    fn a_quoted_block_in_a_merged_tag_is_matched() {
+        let raw = "tree 0\nmergetag object o\n type commit\n tag v1\n tagger T <1+t@users.noreply.github.com> 1 +0000\n \n v1\n -----BEGIN CERTIFICATE-----\n /Users/jdoe/x\n -----END CERTIFICATE-----\nauthor A <1+a@users.noreply.github.com> 1 +0000\ncommitter C <1+c@users.noreply.github.com> 1 +0000\n\nm\n";
+        assert_eq!(hints(raw), vec![IN_HEADER]);
+    }
+
     #[test]
     fn render_gives_each_hint_once() {
         let f = |at: &str| Finding {

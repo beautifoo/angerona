@@ -1,3 +1,4 @@
+use crate::identity::TAG_SIGNATURES;
 use gix::{
     ObjectId,
     objs::{CommitRefIter, Kind, TagRefIter},
@@ -31,7 +32,8 @@ pub fn parse_ref_line(line: &str) -> Option<RefLine> {
 // A commit as stored, less its signature's base64 lines, which can spell a
 // short term by chance: those of a gpgsig header, and those of the signature
 // of a tag a mergetag header holds, before the blank line that ends the
-// headers. The signature's other lines, such as a Comment: one, stay.
+// headers. The signature's other lines, such as a Comment: one, stay, and so
+// does a block the merged tag's message quotes, which is no signature.
 pub fn strip_signature(commit: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     let mut in_headers = true;
@@ -50,7 +52,7 @@ pub fn strip_signature(commit: &[u8]) -> Vec<u8> {
         if !text.starts_with(b" ") {
             in_signature = false;
             in_mergetag = in_headers && text.starts_with(b"mergetag ");
-        } else if in_mergetag && text[1..].starts_with(b"-----BEGIN ") {
+        } else if in_mergetag && TAG_SIGNATURES.iter().any(|s| text[1..].starts_with(s)) {
             in_signature = true;
         } else if in_mergetag && text[1..].starts_with(b"-----END ") {
             in_signature = false;

@@ -14,7 +14,7 @@ pub struct Object {
     pub message: Vec<u8>,
 }
 
-const TAG_SIGNATURES: [&[u8]; 3] = [
+pub const TAG_SIGNATURES: [&[u8]; 3] = [
     b"-----BEGIN PGP SIGNATURE-----",
     b"-----BEGIN SSH SIGNATURE-----",
     b"-----BEGIN SIGNED MESSAGE-----",
