@@ -6,8 +6,11 @@ pub struct Ident {
     pub raw: String,
 }
 
+// `header` is every header line but the author, committer and tagger ones,
+// such as a tag's name or a merged tag a mergetag header holds.
 pub struct Object {
     pub idents: Vec<Ident>,
+    pub header: Vec<u8>,
     pub message: Vec<u8>,
 }
 
@@ -50,9 +53,9 @@ fn trailer(line: &str) -> Option<Ident> {
 
 // Who an object names, as stored (never through a mailmap): its author,
 // committer or tagger, and the trailers of its message, which is the rest
-// after the headers, less its signature, whose base64 can spell a term by
-// chance. Bytes are read lossily, so an odd or cut object gives less, not a
-// panic.
+// after the headers; and its other headers. Both less the signature, whose
+// base64 can spell a term by chance. Bytes are read lossily, so an odd or
+// cut object gives less, not a panic.
 pub fn read(raw: &[u8]) -> Object {
     let is_tag = raw.starts_with(b"object ");
     let signed = if is_tag {
@@ -76,18 +79,29 @@ pub fn read(raw: &[u8]) -> Object {
     }
 
     let mut idents = Vec::new();
-    for line in headers.split(|&b| b == b'\n') {
-        let line = String::from_utf8_lossy(line);
+    let mut header = Vec::new();
+    for raw_line in headers.split(|&b| b == b'\n') {
+        let line = String::from_utf8_lossy(raw_line);
+        let mut named = false;
         for field in ["author", "committer", "tagger"] {
             if let Some(rest) = line.strip_prefix(field).and_then(|r| r.strip_prefix(' ')) {
                 idents.extend(ident(field, rest));
+                named = true;
             }
+        }
+        if !named {
+            header.extend_from_slice(raw_line);
+            header.push(b'\n');
         }
     }
     for line in message.split(|&b| b == b'\n') {
         idents.extend(trailer(&String::from_utf8_lossy(line)));
     }
-    Object { idents, message }
+    Object {
+        idents,
+        header,
+        message,
+    }
 }
 
 // The people a push would name who are not the user: a tagger always, and the

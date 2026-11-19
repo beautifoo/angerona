@@ -248,6 +248,21 @@ push_private() {
 	has bob@corp.example
 }
 
+@test "a merged signed tag's tagger is checked" {
+	repo
+	commit a.txt hello
+	head=$(git rev-parse HEAD)
+	me='Tester <1+tester@users.noreply.github.com> 1 +0000'
+	printf '%s\n' "tree $(git rev-parse 'HEAD^{tree}')" "parent $head" "author $me" "committer $me" \
+		"mergetag object $head" ' type commit' ' tag v1' ' tagger W <me@home.example> 1 +0000' ' ' \
+		' v1' ' -----BEGIN PGP SIGNATURE-----' ' ' ' iQEzBAABCAAd' ' -----END PGP SIGNATURE-----' \
+		'' 'Merge tag v1' >"$BATS_TEST_TMPDIR/merge"
+	git update-ref refs/heads/main "$(git hash-object -t commit -w "$BATS_TEST_TMPDIR/merge")"
+	run git push origin main
+	[ "$status" -eq 1 ]
+	has "header  email me@home.example"
+}
+
 @test "a tag on a tree is checked" {
 	repo
 	commit a.txt hello

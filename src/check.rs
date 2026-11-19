@@ -16,6 +16,8 @@ const IN_AUTHOR: &str = "git rebase -i <base> --exec 'git commit --amend --no-ed
 const IN_COMMITTER: &str = "with the right user.email set, git rebase -i <base> --exec 'git commit --amend --no-edit' (keeps the author)";
 const IN_TAG: &str = "re-create the tag, with the right user.email set: git tag -d <name> && git tag -a <name> <commit>";
 const IN_MESSAGE: &str = "git rebase -i, reword";
+const IN_HEADER: &str =
+    "make the commit again; for a merged signed tag, merge <tag>^{commit} instead";
 pub const IN_REF: &str = "push under another name: git push <remote> HEAD:refs/heads/<name>";
 
 // One personal detail, where it is, and how to take it out.
@@ -58,7 +60,8 @@ pub fn item_findings(m: &Matcher, object: &str, item: &Item, hint: &'static str)
 
 // Who a commit or tag names, and what its message says. A trailer is part of
 // the message, so it is found there, with the hint that fixes a message; the
-// header identities are matched on their own. Another person's email counts
+// header identities are matched on their own, and the other headers, such as
+// a merged tag's, together as one. Another person's email counts
 // only where identity::foreign says. Anything in a tag is fixed by making
 // the tag again; a commit's committer, by a rebase that keeps the author.
 fn object_findings(
@@ -89,6 +92,12 @@ fn object_findings(
             found.extend(item_findings(m, object, &item, ident_hint(&i.field)));
         }
     }
+    let header = Item {
+        label: Label::Plain("header".to_string()),
+        bytes: o.header.clone(),
+    };
+    let header_hint = if is_tag { IN_TAG } else { IN_HEADER };
+    found.extend(item_findings(m, object, &header, header_hint));
     let message = Item {
         label: Label::Lines("message "),
         bytes: o.message.clone(),

@@ -29,12 +29,14 @@ pub fn parse_ref_line(line: &str) -> Option<RefLine> {
 }
 
 // A commit as stored, less its signature's base64 lines, which can spell a
-// short term by chance: those of a gpgsig header, before the blank line that
-// ends the headers. The signature's other lines, such as a Comment: one, stay.
+// short term by chance: those of a gpgsig header, and those of the signature
+// of a tag a mergetag header holds, before the blank line that ends the
+// headers. The signature's other lines, such as a Comment: one, stay.
 pub fn strip_signature(commit: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     let mut in_headers = true;
     let mut in_signature = false;
+    let mut in_mergetag = false;
     for line in commit.split_inclusive(|&b| b == b'\n') {
         let text = line.strip_suffix(b"\n").unwrap_or(line);
         if text.is_empty() {
@@ -46,6 +48,11 @@ pub fn strip_signature(commit: &[u8]) -> Vec<u8> {
         }
         // A header goes on over the lines that start with a space.
         if !text.starts_with(b" ") {
+            in_signature = false;
+            in_mergetag = in_headers && text.starts_with(b"mergetag ");
+        } else if in_mergetag && text[1..].starts_with(b"-----BEGIN ") {
+            in_signature = true;
+        } else if in_mergetag && text[1..].starts_with(b"-----END ") {
             in_signature = false;
         }
         if in_signature
@@ -303,6 +310,15 @@ mod tests {
         assert!(may_ask("https://github.com/o/r.git"));
         assert!(may_ask("git@github.com:o/r.git"));
         assert!(may_ask("/srv/plain.git"));
+    }
+
+    #[test]
+    fn drops_the_base64_of_a_merged_tags_signature() {
+        let c = b"tree t\nmergetag object o\n tag v1\n tagger W <w@x.example> 1 +0000\n \n v1 zebra\n -----BEGIN PGP SIGNATURE-----\n \n iQEzBAAB+/=\n -----END PGP SIGNATURE-----\nauthor A\n\nmsg\n";
+        assert_eq!(
+            strip_signature(c),
+            b"tree t\nmergetag object o\n tag v1\n tagger W <w@x.example> 1 +0000\n \n v1 zebra\n -----BEGIN PGP SIGNATURE-----\n -----END PGP SIGNATURE-----\nauthor A\n\nmsg\n"
+        );
     }
 
     #[test]
