@@ -507,6 +507,15 @@ with_tty() {
 	has "a.txt:1  home path /Users/jdoe"
 }
 
+@test "an unprobeable URL answered yes is checked as public" {
+	repo
+	commit a.txt me@home.example
+	export ANGERONA_TEST_VISIBILITY=unprobeable
+	run with_tty $'y\nn\n' git push origin main
+	[ "$status" -eq 1 ]
+	has "email me@home.example"
+}
+
 @test "an unprobeable URL with no terminal is checked as public" {
 	repo
 	export ANGERONA_TEST_VISIBILITY=unprobeable
@@ -517,12 +526,13 @@ with_tty() {
 	lacks "Treat"
 }
 
-@test "a passing failure checks without asking" {
+@test "a passing failure is checked as public without asking" {
 	repo
-	commit a.txt /Users/jdoe/x
+	commit a.txt me@home.example
 	export ANGERONA_TEST_VISIBILITY=passing
 	run with_tty $'n\n' git push origin main
 	[ "$status" -eq 1 ]
+	has "email me@home.example"
 	lacks "Treat"
 }
 
