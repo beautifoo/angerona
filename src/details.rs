@@ -214,13 +214,29 @@ pub fn config_values(files: &[PathBuf], key: &str) -> Vec<(String, String)> {
 }
 
 // The addresses never reported in the repo git runs in: its own user.email,
-// as git resolves it there, is the one that repo is meant to carry. A git
-// that fails gives none, so more is reported, not less.
+// as git resolves it there, is the one that repo is meant to carry. A repo
+// that sets no email of its own gets the top-level global one, which is
+// skipped nowhere. Only an address counts: a user.email of a bare login would
+// hide the finding it equals. A git that fails gives none, so more is
+// reported, not less.
 pub fn skipped_here() -> Vec<String> {
+    let lower = |e: String| e.to_lowercase();
+    let global = command_line(
+        "git",
+        &["config", "--global", "--no-includes", "--get", "user.email"],
+    )
+    .map(lower);
     command_line("git", &["config", "--get", "user.email"])
-        .map(|e| e.to_lowercase())
+        .map(lower)
+        .filter(|e| is_address(e) && Some(e) != global.as_ref())
         .into_iter()
         .collect()
+}
+
+// Text shaped like an address: something, an @, then something.
+fn is_address(text: &str) -> bool {
+    text.rsplit_once('@')
+        .is_some_and(|(local, domain)| !local.is_empty() && !domain.is_empty())
 }
 
 // Gathers every email, the home path, login and host names, and says in weak

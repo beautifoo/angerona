@@ -209,6 +209,32 @@ push_unchecked() {
 	has "a.txt:1  email me@home.example"
 }
 
+@test "a repo email that is not an address skips nothing" {
+	repo
+	git config --local user.email jdoe
+	git switch -q -c jdoe/fix
+	commit a.txt /Users/jdoe/x
+	run git push origin jdoe/fix
+	has "refs/heads/jdoe/fix  login jdoe"
+}
+
+@test "a repo email set by includeIf is not reported" {
+	git config --global "includeIf.gitdir:$BATS_TEST_TMPDIR/r/.path" "$BATS_TEST_TMPDIR/corp.gitconfig"
+	git config --file "$BATS_TEST_TMPDIR/corp.gitconfig" user.email work@corp.example
+	repo
+	commit a.txt "mail work@corp.example"
+	run git push origin main
+	[ "$status" -eq 0 ]
+}
+
+@test "a real global email is reported in a repo that sets none" {
+	git config --global user.email me@home.example
+	repo
+	commit a.txt "mail me@home.example"
+	run git push origin main
+	has "a.txt:1  email me@home.example"
+}
+
 @test "my email in a Co-authored-by trailer blocks" {
 	repo
 	printf 'hello\n' >a.txt
