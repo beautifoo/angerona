@@ -227,6 +227,18 @@ push_unchecked() {
 	[ "$status" -eq 0 ]
 }
 
+@test "a repo email is skipped when no email is set outside any repo" {
+	git config --global --unset user.email
+	git config --global "includeIf.gitdir:$BATS_TEST_TMPDIR/r/.path" "$BATS_TEST_TMPDIR/corp.gitconfig"
+	git config --file "$BATS_TEST_TMPDIR/corp.gitconfig" user.email work@corp.example
+	repo
+	commit a.txt "mail work@corp.example"
+	run git push origin main
+	[ "$status" -eq 0 ]
+	run "$AG" scan
+	lacks "work@corp.example"
+}
+
 @test "a real global email is reported in a repo that sets none" {
 	git config --global user.email me@home.example
 	repo

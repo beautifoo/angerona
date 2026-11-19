@@ -83,11 +83,7 @@ pub fn emails_path() -> Option<PathBuf> {
 }
 
 fn command_line(program: &str, args: &[&str]) -> Option<String> {
-    line_of(Command::new(program).args(args))
-}
-
-fn line_of(command: &mut Command) -> Option<String> {
-    let out = command.output().ok()?;
+    let out = Command::new(program).args(args).output().ok()?;
     let line = String::from_utf8(out.stdout).ok()?.trim().to_string();
     (out.status.success() && !line.is_empty()).then_some(line)
 }
@@ -221,22 +217,29 @@ pub fn config_values(files: &[PathBuf], key: &str) -> Vec<(String, String)> {
 // as git resolves it there, is the one that repo is meant to carry. A repo
 // that sets no email of its own gets the one git uses outside any repo,
 // from / with no GIT_DIR (every config file and plain include, no
-// includeIf), which is skipped nowhere. Only an address counts: a user.email
-// of a bare login would hide the finding it equals. A git that fails gives
-// none, so more is reported, not less.
+// includeIf), which is skipped nowhere. When none is set there (git exits 1
+// and prints nothing), any repo email differs from it. Only an address
+// counts: a user.email of a bare login would hide the finding it equals. A
+// git that fails otherwise gives none, so more is reported, not less.
 pub fn skipped_here() -> Vec<String> {
-    let lower = |e: String| e.to_lowercase();
-    let outside = line_of(
-        Command::new("git")
-            .args(["config", "--get", "user.email"])
-            .current_dir("/")
-            .env_remove("GIT_DIR")
-            .env_remove("GIT_WORK_TREE"),
-    )
-    .map(lower);
+    let outside = Command::new("git")
+        .args(["config", "--get", "user.email"])
+        .current_dir("/")
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .output()
+        .ok()
+        .and_then(|out| {
+            let line = String::from_utf8(out.stdout).ok()?.trim().to_lowercase();
+            match out.status.code() {
+                Some(0) if !line.is_empty() => Some(Some(line)),
+                Some(1) if line.is_empty() => Some(None),
+                _ => None,
+            }
+        });
     command_line("git", &["config", "--get", "user.email"])
-        .map(lower)
-        .filter(|e| is_address(e) && outside.as_ref().is_some_and(|o| o != e))
+        .map(|e| e.to_lowercase())
+        .filter(|e| is_address(e) && outside.as_ref().is_some_and(|o| o.as_ref() != Some(e)))
         .into_iter()
         .collect()
 }
