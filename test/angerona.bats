@@ -1,6 +1,9 @@
 #!/usr/bin/env bats
 # angerona against throwaway repos. Run: bats test/
 
+# For run --separate-stderr.
+bats_require_minimum_version 1.5.0
+
 setup() {
 	AG=${AG:-$BATS_TEST_DIRNAME/../target/debug/angerona}
 	export XDG_CONFIG_HOME=$BATS_TEST_TMPDIR/config HOME=$BATS_TEST_TMPDIR/home
@@ -63,14 +66,27 @@ push_unchecked() {
 	has "usage:"
 }
 
-@test "--help prints the usage and succeeds" {
-	run "$AG" --help
+@test "--help prints the usage on stdout and succeeds" {
+	run --separate-stderr "$AG" --help
+	[ "$status" -eq 0 ]
+	[ -z "$stderr" ]
+	has "usage: angerona"
+}
+
+@test "-h is --help" {
+	run --separate-stderr "$AG" -h
 	[ "$status" -eq 0 ]
 	has "usage: angerona"
 }
 
 @test "--version prints the version" {
 	run "$AG" --version
+	[ "$status" -eq 0 ]
+	grep -Eq '^angerona [0-9]+\.[0-9]+\.[0-9]+$' <<<"$output"
+}
+
+@test "-V is --version" {
+	run "$AG" -V
 	[ "$status" -eq 0 ]
 	grep -Eq '^angerona [0-9]+\.[0-9]+\.[0-9]+$' <<<"$output"
 }
