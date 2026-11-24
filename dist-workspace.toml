@@ -17,6 +17,9 @@ tap = "beautifoo/homebrew-tap"
 publish-jobs = ["homebrew"]
 # Whether to enable GitHub Attestations
 github-attestations = true
+# Dry run: a PR builds and uploads every artifact, publishing nothing
+pr-run-mode = "upload"
+cache-builds = false
 
 [dist.github-custom-runners]
 global = "ubuntu-24.04"
