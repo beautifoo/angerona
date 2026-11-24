@@ -10,8 +10,9 @@ pub enum Kind {
 }
 
 // `text` is the matched span as found, so a report can quote it. `address` is
-// the address it is, if it is one: an own email as found, or a login hit
-// shaped like an address, such as a login@host prompt.
+// the address it is, if it is one: an own email, with a URL's %40 read as the
+// @ it stands for, or a login hit shaped like an address, such as a login@host
+// prompt.
 #[derive(Debug, PartialEq)]
 pub struct Hit {
     pub line: usize,
@@ -23,7 +24,7 @@ pub struct Hit {
 impl Hit {
     pub fn new(line: usize, kind: Kind, text: String) -> Hit {
         let address = match kind {
-            Kind::Email => Some(text.clone()),
+            Kind::Email => Some(text.replace("%40", "@")),
             Kind::Login if is_address(&text) => Some(text.clone()),
             _ => None,
         };
@@ -408,7 +409,7 @@ mod tests {
         assert_eq!(hits, vec![Hit::new(1, Kind::Email, "me@x.com".into())]);
     }
 
-    // An own email keeps a %40 as found; a home path or machine name is no
+    // An own email reads a %40 as @; a home path or machine name is no
     // address, and a login only in a login@host prompt.
     #[test]
     fn a_hit_has_an_address_only_where_it_is_one() {
@@ -427,7 +428,7 @@ mod tests {
         assert_eq!(
             got,
             vec![
-                some("me%40home.example"),
+                some("me@home.example"),
                 some("jdoe@jdoes-laptop"),
                 vec![None],
                 vec![None],

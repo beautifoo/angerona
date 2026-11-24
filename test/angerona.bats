@@ -701,6 +701,13 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	has "current a.txt:1"
 }
 
+@test "scan reports your own email written with %40" {
+	repo
+	commit a.txt 'see https://x.example/?to=me%40home.example'
+	run "$AG" scan
+	has "current a.txt:1  email me%40home.example"
+}
+
 @test "scan says to fix a pushed commit in a new commit" {
 	repo
 	commit a.txt /Users/jdoe/x
