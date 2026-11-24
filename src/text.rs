@@ -36,13 +36,17 @@ pub fn blob_item(path: &str, bytes: &[u8]) -> Item {
     }
     let utf16: Option<Vec<u16>> = match bytes {
         [0xff, 0xfe, rest @ ..] => Some(
-            rest.chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            rest.as_chunks()
+                .0
+                .iter()
+                .map(|&c| u16::from_le_bytes(c))
                 .collect(),
         ),
         [0xfe, 0xff, rest @ ..] => Some(
-            rest.chunks_exact(2)
-                .map(|c| u16::from_be_bytes([c[0], c[1]]))
+            rest.as_chunks()
+                .0
+                .iter()
+                .map(|&c| u16::from_be_bytes(c))
                 .collect(),
         ),
         _ => None,
@@ -62,8 +66,10 @@ pub fn blob_item(path: &str, bytes: &[u8]) -> Item {
     }
     for start in [0, 1] {
         let units: Vec<u16> = bytes[start..]
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .as_chunks()
+            .0
+            .iter()
+            .map(|&c| u16::from_le_bytes(c))
             .collect();
         for run in units.split(|&u| !readable(u)) {
             if run.len() >= 6 {
