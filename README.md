@@ -19,11 +19,18 @@ without a word. `angerona doctor` names each git on your PATH that would.
 
 ## Install
 
+With Homebrew, on macOS or Linux:
+
 ```sh
-cargo install --git https://github.com/beautifoo/angerona
+brew install beautifoo/tap/angerona
 ```
 
-Homebrew (`brew install beautifoo/tap/angerona`) comes with the first release.
+Or from source, with Rust 1.88 or later. On Linux this also needs a C
+compiler, make and perl, to build curl and OpenSSL into the binary.
+
+```sh
+cargo install --locked --git https://github.com/beautifoo/angerona --tag v0.1.0
+```
 
 ## Set up
 
