@@ -1,3 +1,4 @@
+use crate::verdict::{EmailFacts, Outside};
 use std::{
     collections::HashSet,
     env, fs,
@@ -213,15 +214,11 @@ pub fn config_values(files: &[PathBuf], key: &str) -> Vec<(String, String)> {
     found
 }
 
-// The addresses never reported in the repo git runs in: its own user.email,
-// as git resolves it there, is the one that repo is meant to carry. A repo
-// that sets no email of its own gets the one git uses outside any repo,
-// from / with no GIT_DIR (every config file and plain include, no
-// includeIf), which is skipped nowhere. When none is set there (git exits 1
-// and prints nothing), any repo email differs from it. Only an address
-// counts: a user.email of a bare login would hide the finding it equals. A
-// git that fails otherwise gives none, so more is reported, not less.
-pub fn skipped_here() -> Vec<String> {
+// The user.email git uses in the repo it runs in, with every includeIf
+// resolved there, and the one it uses outside any repo: from / with no
+// GIT_DIR, so every config file and plain include counts and no includeIf on
+// a gitdir or branch matches. verdict::repo_own_email decides.
+pub fn email_facts() -> EmailFacts {
     let outside = Command::new("git")
         .args(["config", "--get", "user.email"])
         .current_dir("/")
@@ -232,16 +229,17 @@ pub fn skipped_here() -> Vec<String> {
         .and_then(|out| {
             let line = String::from_utf8(out.stdout).ok()?.trim().to_lowercase();
             match out.status.code() {
-                Some(0) if !line.is_empty() => Some(Some(line)),
-                Some(1) if line.is_empty() => Some(None),
+                Some(0) if !line.is_empty() => Some(Outside::Set(line)),
+                Some(1) if line.is_empty() => Some(Outside::Unset),
                 _ => None,
             }
-        });
-    command_line("git", &["config", "--get", "user.email"])
-        .map(|e| e.to_lowercase())
-        .filter(|e| is_address(e) && outside.as_ref().is_some_and(|o| o.as_ref() != Some(e)))
-        .into_iter()
-        .collect()
+        })
+        .unwrap_or(Outside::GitFailed);
+    EmailFacts {
+        repo_email: command_line("git", &["config", "--get", "user.email"])
+            .map(|e| e.to_lowercase()),
+        outside,
+    }
 }
 
 // Text shaped like an address: something, an @, then something.

@@ -11,6 +11,7 @@ mod scan;
 mod setup;
 mod text;
 mod tty;
+mod verdict;
 
 use public::Visibility;
 use std::{
@@ -87,11 +88,13 @@ fn check_push(remote: &str, url: &str) -> i32 {
     }
 }
 
-// Your details, less the addresses never reported in this repo, which come
-// back too, to drop from what another rule finds.
+// Your details, less the repo's own email, which comes back too, to drop from
+// what another rule finds.
 fn details_here() -> (details::Details, Vec<String>) {
     let mut details = details::discover(&details::machine());
-    let skip = details::skipped_here();
+    let skip: Vec<String> = verdict::repo_own_email(&details::email_facts())
+        .into_iter()
+        .collect();
     details.emails.retain(|(e, _)| !skip.contains(e));
     (details, skip)
 }
