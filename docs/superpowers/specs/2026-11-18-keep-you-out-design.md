@@ -55,7 +55,7 @@ An address is noreply when its local part is `noreply` or `no-reply`, or its dom
 
 ### `angerona setup`
 
-Writes the pre-push hook into the global git config (git ≥ 2.54 config-based hooks: `hook.angerona.event = pre-push`, `hook.angerona.command = …`). The command line holds no home path: it runs bare `angerona`. When `angerona` is not on the PATH git gives the hook (from a terminal or an app), the line prints `angerona not installed, push not checked` and exits 0: the global config is often shared through dotfiles to machines without angerona, and putting angerona on that PATH is the machine's setup, not angerona's.
+Writes the pre-push hook into the global git config (git ≥ 2.54 config-based hooks: `hook.angerona.event = pre-push`, `hook.angerona.command = …`). The command line holds no home path: it runs bare `angerona`. When `angerona` is not on the PATH git gives the hook (from a terminal or an app), the line prints `angerona not found, push refused: …` and exits 1, so no push goes out unchecked (decided 2026-11-24; it used to let the push through with a note). Putting angerona on that PATH is the machine's setup, not angerona's: a machine that gets the global config through dotfiles needs angerona or the hook lines removed, and on macOS, apps started from the Dock get launchd's PATH, which `sudo launchctl config user path …` and a restart change.
 
 Setup never sets `parallel = true`. If the global config file is a symlink (dotfiles), setup writes through it rather than replacing it. If the first git on the PATH is older than 2.54 (or there is none), git would never run the hook, so setup writes nothing, says so, points at `angerona doctor` for the fix, and exits 1.
 

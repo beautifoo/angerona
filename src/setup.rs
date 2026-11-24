@@ -11,10 +11,10 @@ use std::{
 };
 
 // Git appends "$@" to a config hook's command, so the trailing f gets the
-// remote and URL. Without angerona on the PATH git gives the hook, the push
-// goes through with a note: finding it is the machine's setup.
+// remote and URL. Without angerona on the PATH git gives the hook, the push is
+// refused, since an unchecked one may leak: finding it is the machine's setup.
 pub fn hook_command() -> String {
-    "f() { if command -v angerona >/dev/null 2>&1; then angerona check-push \"$@\"; else echo 'angerona not installed, push not checked' >&2; fi; }; f".to_string()
+    "f() { if command -v angerona >/dev/null 2>&1; then angerona check-push \"$@\"; else echo 'angerona not found, push refused: put it on the PATH git gives this hook, or remove hook.angerona from your global git config' >&2; return 1; fi; }; f".to_string()
 }
 
 // Sets one global config key; git follows a symlinked config file.

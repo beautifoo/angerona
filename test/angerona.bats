@@ -593,7 +593,7 @@ global_repo() {
 	git remote add origin "$BATS_TEST_TMPDIR/origin.git"
 }
 
-HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@"; else echo '\''angerona not installed, push not checked'\'' >&2; fi; }; f'
+HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@"; else echo '\''angerona not found, push refused: put it on the PATH git gives this hook, or remove hook.angerona from your global git config'\'' >&2; return 1; fi; }; f'
 
 @test "setup writes the hook into the global config" {
 	no_gh
@@ -648,14 +648,14 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	has "this push names you"
 }
 
-@test "without angerona the push passes with a warning" {
+@test "without angerona the push is refused" {
 	no_gh
 	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup
 	global_repo
-	commit a.txt /Users/jdoe/x
+	commit a.txt hello
 	PATH=$BATS_TEST_TMPDIR/bin:/bin run git push origin main
-	[ "$status" -eq 0 ]
-	has "angerona not installed, push not checked"
+	[ "$status" -ne 0 ]
+	has "angerona not found, push refused"
 }
 
 @test "setup saves my GitHub emails privately" {
@@ -1015,7 +1015,7 @@ good_setup() {
 	PATH=$BATS_TEST_TMPDIR/bin "$AG" setup >/dev/null
 	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
 	[ "$status" -eq 1 ]
-	has "angerona is not on your PATH, so the hook prints 'not checked' and lets every push through; fix: add the folder that holds angerona to your PATH"
+	has "angerona is not on your PATH, so the hook refuses every push; fix: add the folder that holds angerona to your PATH"
 }
 
 @test "doctor notes a weak login" {

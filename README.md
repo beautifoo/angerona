@@ -35,8 +35,17 @@ This writes one pre-push hook into your global git config
 (`hook.angerona.event` and `hook.angerona.command`). The hook line holds no
 home path, so it is safe in a public dotfiles repo. It runs `angerona` from
 the PATH git gives the hook. Where angerona isn't on that PATH, as on a
-machine without it, it prints `angerona not installed, push not checked` and
-lets the push go.
+machine without it, the hook refuses the push, so nothing goes out unchecked:
+install angerona there, or remove the two `hook.angerona` lines.
+
+On macOS, apps started from the Dock, such as Xcode, don't get your shell's
+PATH. Give them one that holds angerona's folder (Homebrew's is shown; for a
+cargo install, add the full path of `~/.cargo/bin`, since launchd doesn't
+expand `~`), then restart:
+
+```sh
+sudo launchctl config user path /opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
+```
 
 Then check your git settings:
 

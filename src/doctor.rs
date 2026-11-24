@@ -111,7 +111,7 @@ pub fn run() -> i32 {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|p| !p.is_empty());
     if found.is_none() {
-        problems += "angerona is not on your PATH, so the hook prints 'not checked' and lets every push through; fix: add the folder that holds angerona to your PATH\n";
+        problems += "angerona is not on your PATH, so the hook refuses every push; fix: add the folder that holds angerona to your PATH\n";
     }
 
     // A per-host includeIf file is where a signing key usually lives. A
