@@ -19,7 +19,8 @@ without a word. `angerona doctor` names each git on your PATH that would.
 
 ## Install
 
-With Homebrew, on macOS or Linux:
+With Homebrew, on an Apple silicon Mac or Linux (on an Intel Mac, install
+from source):
 
 ```sh
 brew install beautifoo/tap/angerona
@@ -48,7 +49,7 @@ install angerona there, or remove the two `hook.angerona` lines.
 On macOS, apps started from the Dock, such as Xcode, don't get your shell's
 PATH. Give them one that holds angerona's folder (Homebrew's is shown; for a
 cargo install, add the full path of `~/.cargo/bin`, since launchd doesn't
-expand `~`), then restart:
+expand `~`), then restart your Mac:
 
 ```sh
 sudo launchctl config user path /opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin

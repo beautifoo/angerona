@@ -55,7 +55,7 @@ An address is noreply when its local part is `noreply` or `no-reply`, or its dom
 
 ### `angerona setup`
 
-Writes the pre-push hook into the global git config (git ≥ 2.54 config-based hooks: `hook.angerona.event = pre-push`, `hook.angerona.command = …`). The command line holds no home path: it runs bare `angerona`. When `angerona` is not on the PATH git gives the hook (from a terminal or an app), the line prints `angerona not found, push refused: …` and exits 1, so no push goes out unchecked (decided 2026-11-24; it used to let the push through with a note). Putting angerona on that PATH is the machine's setup, not angerona's: a machine that gets the global config through dotfiles needs angerona or the hook lines removed, and on macOS, apps started from the Dock get launchd's PATH, which `sudo launchctl config user path …` and a restart change.
+Writes the pre-push hook into the global git config (git ≥ 2.54 config-based hooks: `hook.angerona.event = pre-push`, `hook.angerona.command = …`). The command line holds no home path: it runs bare `angerona`. When `angerona` is not on the PATH git gives the hook (from a terminal or an app), the line prints `angerona not found, push refused: …` and exits 1, so no push goes out unchecked (decided 2026-11-24; it used to let the push through with a note). Putting angerona on that PATH is the machine's setup, not angerona's: a machine that gets the global config through dotfiles needs angerona or the hook lines removed, and on macOS, apps started from the Dock get launchd's PATH, which `sudo launchctl config user path …` and a reboot change.
 
 Setup never sets `parallel = true`. If the global config file is a symlink (dotfiles), setup writes through it rather than replacing it. If the first git on the PATH is older than 2.54 (or there is none), git would never run the hook, so setup writes nothing, says so, points at `angerona doctor` for the fix, and exits 1.
 
@@ -141,7 +141,7 @@ Checks and prints what to fix:
 - The login as a branch prefix is a personal detail.
 - Added lines only in the hook; whole history and files in `scan`.
 - On a finding: `Push anyway? [y/N]`; without a terminal, block, say to fix the lines and push again, and that only a person should push past it with `--no-verify` (2026-11-19).
-- Missing binary: warn and push.
+- Missing binary: refuse the push (2026-11-24; it used to warn and push).
 - Generic machine name: `doctor` tells you.
 - `doctor` does not search the disk for public repos; one closing line instead.
 - `scan` reports only.
@@ -154,7 +154,7 @@ Checks and prints what to fix:
 
 - The public check is a plain HTTP GET, not `git ls-remote` (credential leaks shown in testing).
 - Matching forms for home path, login and machine name above, and the noreply heuristic.
-- Fail closed on every internal error; the one fail-open is the missing binary.
+- Fail closed on every internal error and on a missing binary.
 - Identities read from raw objects (mailmap would hide real emails).
 - `scan` applies the unpublished-commit rule for other people's emails to every commit, since going public publishes them all; a commit a remote-tracking ref reaches only gets another fix hint.
 - The public-check outcome table (public, private, can never be probed, passing failure) above.
