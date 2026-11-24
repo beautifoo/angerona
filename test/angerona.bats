@@ -602,6 +602,17 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	[ "$(git config --global hook.angerona.command)" = "$HOOK" ]
 }
 
+@test "setup refuses a git that skips config hooks" {
+	mkdir -p "$BATS_TEST_TMPDIR/oldbin"
+	printf '#!/bin/sh\necho "git version 2.39.5"\n' >"$BATS_TEST_TMPDIR/oldbin/git"
+	chmod +x "$BATS_TEST_TMPDIR/oldbin/git"
+	PATH=$BATS_TEST_TMPDIR/oldbin:$PATH run "$AG" setup
+	[ "$status" -eq 1 ]
+	has "skips config hooks"
+	run git config --global --get hook.angerona.command
+	[ "$status" -eq 1 ]
+}
+
 @test "setup sets the pre-push event" {
 	no_gh
 	PATH=$BATS_TEST_TMPDIR/bin run "$AG" setup

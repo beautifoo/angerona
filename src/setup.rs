@@ -1,5 +1,6 @@
 #[cfg(feature = "github-emails")]
 use crate::details;
+use crate::doctor;
 use std::process::Command;
 #[cfg(feature = "github-emails")]
 use std::{
@@ -129,9 +130,16 @@ fn save_emails() {
 }
 
 // Writes the pre-push hook into the global git config, then (with the
-// github-emails feature) saves the emails of your GitHub account. Exits 1 only
-// when the hook could not be written.
+// github-emails feature) saves the emails of your GitHub account. Exits 1,
+// writing nothing, when git would never run the hook, or when it could not be
+// written.
 pub fn run() -> i32 {
+    if let Some(why) = doctor::git_skips_hooks() {
+        eprintln!(
+            "angerona: {why}, so git would never run the hook; run angerona doctor for the fix"
+        );
+        return 1;
+    }
     let set = git_set("hook.angerona.event", "pre-push")
         .and_then(|_| git_set("hook.angerona.command", &hook_command()));
     if let Err(e) = set {

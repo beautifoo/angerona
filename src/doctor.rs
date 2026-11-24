@@ -201,14 +201,7 @@ pub fn run() -> i32 {
 // problems; another adds only to notes, since an app may still commit with
 // it.
 fn check_gits(problems: &mut String, notes: &mut String) {
-    let mut gits: Vec<PathBuf> = Vec::new();
-    let path = env::var_os("PATH").unwrap_or_default();
-    for dir in env::split_paths(&path).filter(|d| !d.as_os_str().is_empty()) {
-        let g = dir.join("git");
-        if executable(&g) && !gits.contains(&g) {
-            gits.push(g);
-        }
-    }
+    let gits = gits_on_path();
     let Some(first) = gits.first() else {
         *problems += &format!("no git on PATH; fix: {NEW_GIT}\n");
         return;
@@ -244,6 +237,29 @@ fn check_gits(problems: &mut String, notes: &mut String) {
             *notes += &msg;
         }
     }
+}
+
+// Every git on PATH, each once, in PATH order.
+fn gits_on_path() -> Vec<PathBuf> {
+    let mut gits: Vec<PathBuf> = Vec::new();
+    let path = env::var_os("PATH").unwrap_or_default();
+    for dir in env::split_paths(&path).filter(|d| !d.as_os_str().is_empty()) {
+        let g = dir.join("git");
+        if executable(&g) && !gits.contains(&g) {
+            gits.push(g);
+        }
+    }
+    gits
+}
+
+// Why the first git on PATH, the one that runs config hooks here, can't run
+// the hook; None when it can.
+pub fn git_skips_hooks() -> Option<String> {
+    let Some(first) = gits_on_path().into_iter().next() else {
+        return Some("there is no git on PATH".to_string());
+    };
+    let version = version_line(&first);
+    (!new_enough(&version)).then(|| format!("{} ({version}) skips config hooks", first.display()))
 }
 
 // The first line git --version prints on stdout, past any warning, or on

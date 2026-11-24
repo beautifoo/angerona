@@ -57,7 +57,7 @@ An address is noreply when its local part is `noreply` or `no-reply`, or its dom
 
 Writes the pre-push hook into the global git config (git ≥ 2.54 config-based hooks: `hook.angerona.event = pre-push`, `hook.angerona.command = …`). The command line holds no home path: it runs bare `angerona`. When `angerona` is not on the PATH git gives the hook (from a terminal or an app), the line prints `angerona not installed, push not checked` and exits 0: the global config is often shared through dotfiles to machines without angerona, and putting angerona on that PATH is the machine's setup, not angerona's.
 
-Setup never sets `parallel = true`. If the global config file is a symlink (dotfiles), setup writes through it rather than replacing it.
+Setup never sets `parallel = true`. If the global config file is a symlink (dotfiles), setup writes through it rather than replacing it. If the first git on the PATH is older than 2.54 (or there is none), git would never run the hook, so setup writes nothing, says so, points at `angerona doctor` for the fix, and exits 1.
 
 Only with `--features github-emails`: setup also reads your GitHub account's emails with `gh api user/emails` and writes the non-noreply ones to the emails file (mode 600). When `gh` is missing or not logged in, it says so and carries on with the config emails only. When the token can't read the emails, it prints `run: gh auth refresh -h github.com -s user:email, then angerona setup again`. `user:email` only lets gh read your email addresses; GitHub also accepts the broader `user` scope (it can change your profile), which angerona never asks for. angerona never changes your gh login itself. The hook reads only the file: no `gh` or network call per push for this.
 
