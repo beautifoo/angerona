@@ -93,13 +93,14 @@ impl Verdict {
 
     // Whether a finding is reported. The repo's own email never is, by any
     // rule. A named address counts only as another person's, not yours (the
-    // matcher looks for those) nor noreply, and only as the tagger or the
-    // committer of an unpublished commit, the fields that say who ran git: so
-    // fork syncs and patches you apply stay quiet. A scan marks every commit
-    // unpublished. A push reports emails only to a public repo. Why a scan
-    // narrows it: on a team repo, thousands of other people's emails bury the
-    // findings, so it reports one only when it looks machine-guessed from your
-    // login, your own old machine, or with --all-emails; an empty one never.
+    // matcher looks for those) nor noreply nor empty, which names nobody, and
+    // only as the tagger or the committer of an unpublished commit, the fields
+    // that say who ran git: so fork syncs and patches you apply stay quiet. A
+    // scan marks every commit unpublished. A push reports emails only to a
+    // public repo. Why a scan narrows it: on a team repo, thousands of other
+    // people's emails bury the findings, so it reports one only when it looks
+    // machine-guessed from your login, your own old machine, or with
+    // --all-emails.
     pub fn keeps(&self, f: &Finding) -> bool {
         let address = f.address.as_deref().unwrap_or_default();
         if self.repo_own.as_deref() == Some(&address.to_lowercase()) {
@@ -111,7 +112,7 @@ impl Verdict {
                 .as_ref()
                 .is_some_and(|(_, _, field)| field == "tagger")
                 || f.unpublished;
-            if !counts || is_noreply(address) || self.yours(address) {
+            if !counts || address.is_empty() || is_noreply(address) || self.yours(address) {
                 return false;
             }
         }
@@ -121,8 +122,7 @@ impl Verdict {
                 let local = address.rsplit_once('@').map(|(l, _)| l.to_lowercase());
                 let guessed = machine_guessed(address)
                     && self.facts.login.as_deref().map(str::to_lowercase) == local;
-                f.kind != Kind::Email
-                    || (!address.is_empty() && (self.yours(address) || all_emails || guessed))
+                f.kind != Kind::Email || self.yours(address) || all_emails || guessed
             }
         }
     }
@@ -279,9 +279,9 @@ mod tests {
     }
 
     #[test]
-    fn a_scan_never_keeps_an_empty_address() {
+    fn an_empty_address_is_never_kept() {
         let f = named("committer", "", true);
-        assert_eq!(in_every_mode(&f), [true, false, false, false]);
+        assert_eq!(in_every_mode(&f), [false; 4]);
     }
 
     #[test]

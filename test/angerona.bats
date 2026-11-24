@@ -772,7 +772,15 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	lacks "email"
 }
 
-
+@test "a push never reports an empty email" {
+	repo
+	commit a.txt hello
+	tree=$(git rev-parse 'HEAD^{tree}')
+	obj=$(printf 'tree %s\nauthor A <1+a@users.noreply.github.com> 1 +0000\ncommitter Name <> 1 +0000\n\nm\n' "$tree" | git hash-object -t commit -w --stdin)
+	git update-ref refs/heads/main "$obj"
+	run git push -q origin main
+	[ "$status" -eq 0 ]
+}
 
 @test "scan does not report the repo's own email" {
 	repo
