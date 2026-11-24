@@ -23,9 +23,10 @@ pub const IN_REF: &str = "push under another name: git push <remote> HEAD:refs/h
 // One personal detail, where it is, and how to take it out. `at`, `what` and
 // `hint` are printed; `kind`, `address` and `ident` say the same as data: the
 // address the detail is, if it is one, and the commit or tag header field it
-// sits in, if it does. `unpublished` is the commit's, and `named` marks the
-// address a committer or tagger field names, read from the field, not found by
-// the matcher: the verdict decides whether it counts.
+// sits in, if it does. `unpublished` is the commit's; a scan sets it on every
+// commit, since it counts them all. `named` marks the address a committer or
+// tagger field names, read from the field, not found by the matcher: the
+// verdict decides whether it counts.
 pub struct Finding {
     pub at: String,
     pub what: String,
