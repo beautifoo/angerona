@@ -1,0 +1,5 @@
+# One Rust for CI, release builds and every machine, so a new Clippy lint
+# can't fail CI on code that passes here. Bump it on purpose.
+[toolchain]
+channel = "1.100.0"
+components = ["clippy", "rustfmt"]
