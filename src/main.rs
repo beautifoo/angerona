@@ -68,7 +68,7 @@ fn check_push(remote: &str, url: &str) -> i32 {
     let mut found = push::outgoing(&repo, &refs, &held)
         .and_then(|out| check::push_findings(&repo, &out, &refs, &m, &own))
         .unwrap_or_else(|e| fail(&format!("git failed reading the push ({e})")));
-    found.retain(|f| !check::quotes_any(f, &skip) && (public || !f.what.starts_with("email ")));
+    found.retain(|f| !check::quotes_any(f, &skip) && (public || f.kind != matcher::Kind::Email));
     if found.is_empty() {
         return 0;
     }

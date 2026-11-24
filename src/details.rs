@@ -245,7 +245,7 @@ pub fn skipped_here() -> Vec<String> {
 }
 
 // Text shaped like an address: something, an @, then something.
-fn is_address(text: &str) -> bool {
+pub fn is_address(text: &str) -> bool {
     text.rsplit_once('@')
         .is_some_and(|(local, domain)| !local.is_empty() && !domain.is_empty())
 }

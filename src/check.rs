@@ -1,5 +1,6 @@
 use crate::{
     added::commit_items,
+    details::is_address,
     identity::{self, foreign},
     matcher::{Hit, Kind as HitKind, Matcher},
     push::{Outgoing, RefLine, read},
@@ -20,34 +21,46 @@ const IN_HEADER: &str =
     "make the commit again; for a merged signed tag, merge <tag>^{commit} instead";
 pub const IN_REF: &str = "push under another name: git push <remote> HEAD:refs/heads/<name>";
 
-// One personal detail, where it is, and how to take it out.
+// One personal detail, where it is, and how to take it out. `at`, `what` and
+// `hint` are printed; `kind`, `address` and `ident` say the same as data: the
+// address the detail is, if it is one, and the commit or tag header field it
+// sits in, if it does.
 pub struct Finding {
     pub at: String,
     pub what: String,
     pub hint: &'static str,
+    pub kind: HitKind,
+    pub address: Option<String>,
+    pub ident: Option<(Kind, String, String)>,
 }
 
-// The kind of detail, and the text as found, so it can be searched for.
-pub fn what(h: &Hit) -> String {
-    let kind = match h.kind {
-        HitKind::Email => "email",
-        HitKind::HomePath => "home path",
-        HitKind::Login => "login",
-        HitKind::Host => "machine name",
-    };
-    format!("{kind} {}", h.text)
-}
-
-// Whether a finding quotes one of these lowercased addresses, whatever rule
-// found it.
-pub fn quotes_any(f: &Finding, addresses: &[String]) -> bool {
-    let mut text = f.what.as_str();
-    for kind in ["email ", "home path ", "login ", "machine name "] {
-        if let Some(rest) = f.what.strip_prefix(kind) {
-            text = rest;
+impl Finding {
+    // A hit, with the kind of detail and the text as found, so it can be
+    // searched for.
+    pub fn new(at: String, h: &Hit, hint: &'static str) -> Finding {
+        let kind = match h.kind {
+            HitKind::Email => "email",
+            HitKind::HomePath => "home path",
+            HitKind::Login => "login",
+            HitKind::Host => "machine name",
+        };
+        Finding {
+            at,
+            what: format!("{kind} {}", h.text),
+            hint,
+            kind: h.kind,
+            address: (h.kind == HitKind::Email || is_address(&h.text)).then(|| h.text.clone()),
+            ident: None,
         }
     }
-    addresses.contains(&text.to_lowercase())
+}
+
+// Whether a finding is one of these lowercased addresses, whatever rule found
+// it.
+pub fn quotes_any(f: &Finding, addresses: &[String]) -> bool {
+    f.address
+        .as_ref()
+        .is_some_and(|a| addresses.contains(&a.to_lowercase()))
 }
 
 // Each hit in an item, at the place its label names.
@@ -61,11 +74,7 @@ pub fn item_findings(m: &Matcher, object: &str, item: &Item, hint: &'static str)
             Label::Name(kind, name) => format!("{kind} {name}"),
             Label::Plain(label) => label.clone(),
         };
-        found.push(Finding {
-            at: format!("{object} {place}"),
-            what: what(&h),
-            hint,
-        });
+        found.push(Finding::new(format!("{object} {place}"), &h, hint));
     }
     found
 }
@@ -76,14 +85,19 @@ pub fn item_findings(m: &Matcher, object: &str, item: &Item, hint: &'static str)
 // a merged tag's, together as one. Another person's email counts
 // only where identity::foreign says. Anything in a tag is fixed by making
 // the tag again; a commit's committer, by a rebase that keeps the author.
+// The other headers count as one field, "header", so a scan folds an address
+// there into the address's line.
 fn object_findings(
     raw: &[u8],
-    object: &str,
+    id: ObjectId,
     unpublished: bool,
     m: &Matcher,
     own: &[String],
 ) -> Vec<Finding> {
     let is_tag = raw.starts_with(b"object ");
+    let kind = if is_tag { Kind::Tag } else { Kind::Commit };
+    let hash = id.to_hex_with_len(7).to_string();
+    let object = format!("{kind} {hash}");
     let ident_hint = |field: &str| {
         if is_tag {
             IN_TAG
@@ -93,6 +107,15 @@ fn object_findings(
             IN_COMMITTER
         }
     };
+    let in_field = |item: &Item, field: &str, hint| {
+        let ident = Some((kind, hash.clone(), field.to_string()));
+        item_findings(m, &object, item, hint)
+            .into_iter()
+            .map(move |f| Finding {
+                ident: ident.clone(),
+                ..f
+            })
+    };
     let o = identity::read(raw);
     let mut found = Vec::new();
     for i in &o.idents {
@@ -101,7 +124,7 @@ fn object_findings(
                 label: Label::Plain(i.field.clone()),
                 bytes: i.raw.clone().into_bytes(),
             };
-            found.extend(item_findings(m, object, &item, ident_hint(&i.field)));
+            found.extend(in_field(&item, &i.field, ident_hint(&i.field)));
         }
     }
     let header = Item {
@@ -109,18 +132,21 @@ fn object_findings(
         bytes: o.header.clone(),
     };
     let header_hint = if is_tag { IN_TAG } else { IN_HEADER };
-    found.extend(item_findings(m, object, &header, header_hint));
+    found.extend(in_field(&header, "header", header_hint));
     let message = Item {
         label: Label::Lines("message "),
         bytes: o.message.clone(),
     };
     let message_hint = if is_tag { IN_TAG } else { IN_MESSAGE };
-    found.extend(item_findings(m, object, &message, message_hint));
+    found.extend(item_findings(m, &object, &message, message_hint));
     for i in foreign(&o, unpublished, own) {
         found.push(Finding {
             at: format!("{object} {}", i.field),
             what: format!("email {}", i.email),
             hint: ident_hint(&i.field),
+            kind: HitKind::Email,
+            address: Some(i.email.clone()),
+            ident: Some((kind, hash.clone(), i.field.clone())),
         });
     }
     found
@@ -152,7 +178,7 @@ pub fn commit_findings(
     for item in commit_items(repo, tree, &parent_trees)? {
         found.extend(item_findings(m, &object, &item, IN_FILE));
     }
-    found.extend(object_findings(&raw, &object, unpublished, m, own));
+    found.extend(object_findings(&raw, id, unpublished, m, own));
     Ok(found)
 }
 
@@ -165,8 +191,7 @@ pub fn tag_findings(
     own: &[String],
 ) -> Result<Vec<Finding>, Box<dyn Error>> {
     let raw = read(repo, id)?.data;
-    let object = format!("tag {}", id.to_hex_with_len(7));
-    let mut found = object_findings(&raw, &object, false, m, own);
+    let mut found = object_findings(&raw, id, false, m, own);
     let target = TagRefIter::from_bytes(&raw, repo.object_hash()).target_id()?;
     found.extend(blob_findings(repo, target, m)?);
     Ok(found)
@@ -224,11 +249,7 @@ pub fn push_findings(
     }
     for r in refs {
         for h in m.find_ref(&r.remote_ref) {
-            found.push(Finding {
-                at: format!("ref {}", r.remote_ref),
-                what: what(&h),
-                hint: IN_REF,
-            });
+            found.push(Finding::new(format!("ref {}", r.remote_ref), &h, IN_REF));
         }
     }
     Ok(found)
@@ -266,7 +287,8 @@ mod tests {
             hosts: vec![],
             weak: vec![],
         });
-        object_findings(raw.as_bytes(), "x", true, &m, &[ME.to_string()])
+        let id = ObjectId::null(gix::hash::Kind::Sha1);
+        object_findings(raw.as_bytes(), id, true, &m, &[ME.to_string()])
             .iter()
             .map(|f| f.hint)
             .collect()
@@ -318,21 +340,23 @@ mod tests {
 
     #[test]
     fn quotes_any_reads_past_the_kind_and_case() {
-        let f = Finding {
-            at: "x".to_string(),
-            what: "login JDoe@jdoes-laptop.local".to_string(),
-            hint: IN_FILE,
+        let h = Hit {
+            line: 1,
+            kind: HitKind::Login,
+            text: "JDoe@jdoes-laptop.local".to_string(),
         };
+        let f = Finding::new("x".to_string(), &h, IN_FILE);
         assert!(quotes_any(&f, &["jdoe@jdoes-laptop.local".to_string()]));
     }
 
     #[test]
     fn render_gives_each_hint_once() {
-        let f = |at: &str| Finding {
-            at: at.to_string(),
-            what: "home path /Users/zebra".to_string(),
-            hint: IN_FILE,
+        let h = Hit {
+            line: 1,
+            kind: HitKind::HomePath,
+            text: "/Users/zebra".to_string(),
         };
+        let f = |at: &str| Finding::new(at.to_string(), &h, IN_FILE);
         assert_eq!(
             render(&[f("commit 1 a:1"), f("commit 1 b:2")]),
             format!(

@@ -1,7 +1,7 @@
 use crate::{
-    check::{Finding, IN_REF, commit_findings, item_findings, quotes_any, tag_findings, what},
+    check::{Finding, IN_REF, commit_findings, item_findings, quotes_any, tag_findings},
     identity::machine_guessed,
-    matcher::Matcher,
+    matcher::{Kind as HitKind, Matcher},
     push::{parents, published, read},
     text::{blob_item, name_item},
 };
@@ -47,11 +47,7 @@ fn findings(
         let r = r?;
         let name = r.name().as_bstr().to_string();
         for h in m.find_ref(&name) {
-            history.push(Finding {
-                at: format!("ref {name}"),
-                what: what(&h),
-                hint: IN_REF,
-            });
+            history.push(Finding::new(format!("ref {name}"), &h, IN_REF));
         }
         if let Some(id) = r.target().try_id() {
             stack.push(id.to_owned());
@@ -126,26 +122,10 @@ fn findings(
 struct Group {
     email: String,
     mine: bool,
-    fields: Vec<(String, &'static str, usize)>,
+    fields: Vec<(String, Kind, usize)>,
     first: String,
     last: String,
     hints: Vec<&'static str>,
-}
-
-// Where an identity finding sits: the object's kind and short hash, and the
-// field. Any other place (a message line, a file) has more words or a colon.
-fn ident_place(at: &str) -> Option<(&'static str, &str, &str)> {
-    let mut words = at.split(' ');
-    let (kind, hash, field) = (words.next()?, words.next()?, words.next()?);
-    let kind = match kind {
-        "commit" => "commit",
-        "tag" => "tag",
-        _ => return None,
-    };
-    if words.next().is_some() || field.contains(':') {
-        return None;
-    }
-    Some((kind, hash, field))
 }
 
 // Why: on a team repo, thousands of other people's emails bury the findings.
@@ -162,7 +142,7 @@ fn group(
     let mut plain = Vec::new();
     let mut groups: Vec<Group> = Vec::new();
     for f in all {
-        let Some(email) = f.what.strip_prefix("email ").map(str::to_string) else {
+        let Some(email) = f.address.clone().filter(|_| f.kind == HitKind::Email) else {
             plain.push(f);
             continue;
         };
@@ -172,7 +152,7 @@ fn group(
         if email.is_empty() || (!mine && !all_emails && !guessed) {
             continue;
         }
-        let Some((kind, hash, field)) = ident_place(&f.at) else {
+        let Some((kind, hash, field)) = f.ident else {
             plain.push(f);
             continue;
         };
@@ -183,7 +163,7 @@ fn group(
                     email,
                     mine,
                     fields: Vec::new(),
-                    first: hash.to_string(),
+                    first: hash.clone(),
                     last: String::new(),
                     hints: Vec::new(),
                 });
@@ -194,12 +174,12 @@ fn group(
         match g
             .fields
             .iter_mut()
-            .find(|(n, k, _)| n == field && *k == kind)
+            .find(|(n, k, _)| *n == field && *k == kind)
         {
             Some(entry) => entry.2 += 1,
-            None => g.fields.push((field.to_string(), kind, 1)),
+            None => g.fields.push((field, kind, 1)),
         }
-        g.last = hash.to_string();
+        g.last = hash;
         if !g.hints.contains(&f.hint) {
             g.hints.push(f.hint);
         }
