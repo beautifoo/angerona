@@ -16,7 +16,6 @@ mod verdict;
 use public::Visibility;
 use std::{
     env,
-    ffi::OsString,
     io::{self, Read},
     path::Path,
     process::exit,
@@ -113,19 +112,28 @@ fn scan(all_emails: bool) -> i32 {
     scan::run(&repo, &m, &v)
 }
 
+const USAGE: &str =
+    "usage: angerona check-push REMOTE URL | scan [--all-emails] | doctor | setup | --version";
+
+// Exact arguments only, so a stray one, such as setup --help, never runs a
+// command that writes your config.
 fn main() {
-    let args: Vec<OsString> = env::args_os().skip(1).collect();
-    let arg = |i: usize| args.get(i).and_then(|a| a.to_str());
-    match (arg(0), arg(1), arg(2)) {
-        (Some("check-push"), Some(remote), Some(url)) => exit(check_push(remote, url)),
-        (Some("doctor"), _, _) => exit(doctor::run()),
-        (Some("scan"), None, _) => exit(scan(false)),
-        (Some("scan"), Some("--all-emails"), None) => exit(scan(true)),
-        (Some("setup"), _, _) => exit(setup::run()),
+    let args: Option<Vec<String>> = env::args_os()
+        .skip(1)
+        .map(|a| a.into_string().ok())
+        .collect();
+    let args = args.unwrap_or_default();
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    match args.as_slice() {
+        ["check-push", remote, url] => exit(check_push(remote, url)),
+        ["doctor"] => exit(doctor::run()),
+        ["scan"] => exit(scan(false)),
+        ["scan", "--all-emails"] => exit(scan(true)),
+        ["setup"] => exit(setup::run()),
+        ["-h" | "--help"] => println!("{USAGE}"),
+        ["-V" | "--version"] => println!("angerona {}", env!("CARGO_PKG_VERSION")),
         _ => {
-            eprintln!(
-                "usage: angerona check-push REMOTE URL | scan [--all-emails] | doctor | setup"
-            );
+            eprintln!("{USAGE}");
             exit(2)
         }
     }

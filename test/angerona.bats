@@ -63,6 +63,25 @@ push_unchecked() {
 	has "usage:"
 }
 
+@test "--help prints the usage and succeeds" {
+	run "$AG" --help
+	[ "$status" -eq 0 ]
+	has "usage: angerona"
+}
+
+@test "--version prints the version" {
+	run "$AG" --version
+	[ "$status" -eq 0 ]
+	grep -Eq '^angerona [0-9]+\.[0-9]+\.[0-9]+$' <<<"$output"
+}
+
+@test "setup with a stray argument writes nothing" {
+	run "$AG" setup --help
+	[ "$status" -eq 2 ]
+	run git config --global --get hook.angerona.command
+	[ "$status" -eq 1 ]
+}
+
 @test "a clean push passes" {
 	repo
 	commit a.txt hello
