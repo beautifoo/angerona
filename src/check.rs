@@ -83,8 +83,8 @@ pub fn item_findings(m: &Matcher, object: &str, item: &Item, hint: &'static str)
 // a merged tag's, together as one. Each committer and tagger also gives the
 // address it names; the verdict decides whether another person's counts.
 // Anything in a tag is fixed by making the tag again; a commit's committer, by
-// a rebase that keeps the author. The other headers count as one field,
-// "header", so a scan folds an address there into the address's line.
+// a rebase that keeps the author. Only an identity's finding names its field,
+// so a scan folds it into its address's line; a header finding keeps its own.
 fn object_findings(raw: &[u8], id: ObjectId, m: &Matcher) -> Vec<Finding> {
     let is_tag = raw.starts_with(b"object ");
     let kind = if is_tag { Kind::Tag } else { Kind::Commit };
@@ -124,7 +124,7 @@ fn object_findings(raw: &[u8], id: ObjectId, m: &Matcher) -> Vec<Finding> {
         bytes: o.header.clone(),
     };
     let header_hint = if is_tag { IN_TAG } else { IN_HEADER };
-    found.extend(in_field(&header, "header", header_hint));
+    found.extend(item_findings(m, &object, &header, header_hint));
     let message = Item {
         label: Label::Lines("message "),
         bytes: o.message.clone(),

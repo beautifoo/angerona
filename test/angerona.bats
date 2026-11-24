@@ -810,6 +810,19 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	has "email me@home.example: author in 3 commits, committer in 1 commit (first "
 }
 
+@test "scan keeps the place of an email in a merged tag" {
+	repo
+	commit a.txt hello
+	head=$(git rev-parse HEAD)
+	me='Tester <1+tester@users.noreply.github.com> 1 +0000'
+	printf '%s\n' "tree $(git rev-parse 'HEAD^{tree}')" "parent $head" "author $me" "committer $me" \
+		"mergetag object $head" ' type commit' ' tag v1' ' tagger W <me@home.example> 1 +0000' ' ' \
+		' v1' '' 'Merge tag v1' >"$BATS_TEST_TMPDIR/merge"
+	git update-ref refs/heads/main "$(git hash-object -t commit -w "$BATS_TEST_TMPDIR/merge")"
+	run "$AG" scan
+	has "header  email me@home.example"
+}
+
 @test "scan lists home paths before emails" {
 	repo
 	commit a.txt /Users/jdoe/x
