@@ -214,11 +214,11 @@ pub fn config_values(files: &[PathBuf], key: &str) -> Vec<(String, String)> {
     found
 }
 
-// The user.email git uses in the repo it runs in, with every includeIf
-// resolved there, and the one it uses outside any repo: from / with no
-// GIT_DIR, so every config file and plain include counts and no includeIf on
-// a gitdir or branch matches. verdict::repo_own_email decides.
-pub fn email_facts() -> EmailFacts {
+// Your emails and raw login from d, and the user.email git uses in the repo it
+// runs in, with every includeIf resolved there, and the one it uses outside
+// any repo: from / with no GIT_DIR, so every config file and plain include
+// counts and no includeIf on a gitdir or branch matches. The verdict decides.
+pub fn email_facts(d: &Details) -> EmailFacts {
     let outside = Command::new("git")
         .args(["config", "--get", "user.email"])
         .current_dir("/")
@@ -236,9 +236,11 @@ pub fn email_facts() -> EmailFacts {
         })
         .unwrap_or(Outside::GitFailed);
     EmailFacts {
+        own: d.emails.iter().map(|(e, _)| e.clone()).collect(),
         repo_email: command_line("git", &["config", "--get", "user.email"])
             .map(|e| e.to_lowercase()),
         outside,
+        login: d.raw_login.clone(),
     }
 }
 

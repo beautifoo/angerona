@@ -1,9 +1,9 @@
 use crate::{
-    check::{Finding, IN_REF, commit_findings, item_findings, quotes_any, tag_findings},
-    identity::machine_guessed,
+    check::{Finding, IN_REF, commit_findings, item_findings, tag_findings},
     matcher::{Kind as HitKind, Matcher},
     push::{parents, published, read},
     text::{blob_item, name_item},
+    verdict::Verdict,
 };
 use gix::{ObjectId, objs::Kind};
 use std::{
@@ -36,7 +36,6 @@ fn incomplete(repo: &gix::Repository, shallow: &HashSet<ObjectId>) -> bool {
 fn findings(
     repo: &gix::Repository,
     m: &Matcher,
-    own: &[String],
     shallow: &HashSet<ObjectId>,
 ) -> Result<(Vec<Finding>, Vec<Finding>), Box<dyn Error>> {
     let hash = repo.object_hash();
@@ -68,7 +67,7 @@ fn findings(
         let o = read(repo, id)?;
         match o.kind {
             Kind::Commit => {
-                let mut found = commit_findings(repo, id, true, m, own)?;
+                let mut found = commit_findings(repo, id, true, m)?;
                 if published.contains(&id) {
                     found.iter_mut().for_each(|f| f.hint = PUSHED);
                 }
@@ -81,7 +80,7 @@ fn findings(
                 }
             }
             Kind::Tag => {
-                history.extend(tag_findings(repo, id, m, own)?);
+                history.extend(tag_findings(repo, id, m)?);
                 stack.push(gix::objs::TagRefIter::from_bytes(&o.data, hash).target_id()?);
             }
             _ => {}
@@ -128,17 +127,9 @@ struct Group {
     hints: Vec<&'static str>,
 }
 
-// Why: on a team repo, thousands of other people's emails bury the findings.
-// Drops another person's email unless it looks machine-guessed from your login,
-// so your own old machine (or all_emails), and an empty one always; then folds
-// the identity emails into one group per address, yours first, then by count,
-// highest first. The rest stay as lines.
-fn group(
-    all: Vec<Finding>,
-    own: &[String],
-    login: Option<&str>,
-    all_emails: bool,
-) -> (Vec<Finding>, Vec<Group>) {
+// Folds the identity emails into one group per address, yours first, then by
+// count, highest first. The rest stay as lines.
+fn group(all: Vec<Finding>, v: &Verdict) -> (Vec<Finding>, Vec<Group>) {
     let mut plain = Vec::new();
     let mut groups: Vec<Group> = Vec::new();
     for f in all {
@@ -146,12 +137,7 @@ fn group(
             plain.push(f);
             continue;
         };
-        let mine = own.iter().any(|e| e.to_lowercase() == email.to_lowercase());
-        let local = email.rsplit_once('@').map(|(l, _)| l.to_lowercase());
-        let guessed = machine_guessed(&email) && login.map(str::to_lowercase) == local;
-        if email.is_empty() || (!mine && !all_emails && !guessed) {
-            continue;
-        }
+        let mine = v.yours(&email);
         let Some((kind, hash, field)) = f.ident else {
             plain.push(f);
             continue;
@@ -243,16 +229,9 @@ fn render_scan(plain: &[Finding], groups: &[Group]) -> String {
 }
 
 // angerona scan: everything in the repo that names you, with nothing changed,
-// less what quotes an address in skip. Any error reading the repo fails the
-// scan, never a clean result.
-pub fn run(
-    repo: &gix::Repository,
-    m: &Matcher,
-    own: &[String],
-    skip: &[String],
-    login: Option<&str>,
-    all_emails: bool,
-) -> i32 {
+// as far as the verdict keeps it. Any error reading the repo fails the scan,
+// never a clean result.
+pub fn run(repo: &gix::Repository, m: &Matcher, v: &Verdict) -> i32 {
     let shallow: HashSet<ObjectId> = match repo.shallow_commits() {
         Ok(ids) => ids.map(|v| v.iter().copied().collect()).unwrap_or_default(),
         Err(e) => {
@@ -263,14 +242,14 @@ pub fn run(
     if incomplete(repo, &shallow) {
         println!("{PARTIAL}");
     }
-    match findings(repo, m, own, &shallow) {
+    match findings(repo, m, &shallow) {
         Ok((history, current)) => {
             let all: Vec<Finding> = history
                 .into_iter()
                 .chain(current)
-                .filter(|f| !quotes_any(f, skip))
+                .filter(|f| v.keeps(f))
                 .collect();
-            let (plain, groups) = group(all, own, login, all_emails);
+            let (plain, groups) = group(all, v);
             if plain.is_empty() && groups.is_empty() {
                 return 0;
             }

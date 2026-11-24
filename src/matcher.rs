@@ -81,7 +81,8 @@ fn build(pattern: &str) -> Regex {
 
 impl Matcher {
     // Escapes every detail, so a login with a dot or plus is still literal.
-    pub fn new(d: &Details) -> Matcher {
+    // The emails are the ones the verdict says to look for, not d's.
+    pub fn new(d: &Details, emails: &[String]) -> Matcher {
         let mut home = vec![];
         if let Some(h) = &d.home {
             home.push(format!("({}){PATH_END}", regex::escape(h)));
@@ -95,7 +96,7 @@ impl Matcher {
         // whole-address check happens in whole_address, so no text is consumed here. The
         // longest go first, since the first that matches wins and a shorter one can start a
         // longer one. A URL may carry the @ as %40.
-        let mut emails: Vec<_> = d.emails.iter().map(|(e, _)| e.as_str()).collect();
+        let mut emails: Vec<_> = emails.iter().map(String::as_str).collect();
         emails.sort_by_key(|e| std::cmp::Reverse(e.len()));
         let emails: Vec<_> = emails
             .iter()
@@ -208,14 +209,17 @@ mod tests {
     use super::*;
 
     fn matcher() -> Matcher {
-        Matcher::new(&Details {
-            emails: vec![("me@home.example".into(), "test".into())],
-            home: Some("/Users/jdoe".into()),
-            raw_login: Some("jdoe".into()),
-            login: Some("jdoe".into()),
-            hosts: vec!["jdoes-laptop".into()],
-            weak: vec![],
-        })
+        Matcher::new(
+            &Details {
+                emails: vec![],
+                home: Some("/Users/jdoe".into()),
+                raw_login: Some("jdoe".into()),
+                login: Some("jdoe".into()),
+                hosts: vec!["jdoes-laptop".into()],
+                weak: vec![],
+            },
+            &["me@home.example".to_string()],
+        )
     }
 
     fn kinds(text: &str) -> Vec<Kind> {
@@ -354,30 +358,34 @@ mod tests {
     }
 
     fn with_emails(emails: &[&str]) -> Matcher {
-        Matcher::new(&Details {
-            emails: emails
-                .iter()
-                .map(|e| (e.to_string(), "test".into()))
-                .collect(),
-            home: None,
-            raw_login: None,
-            login: None,
-            hosts: vec![],
-            weak: vec![],
-        })
+        let emails: Vec<String> = emails.iter().map(|e| e.to_string()).collect();
+        Matcher::new(
+            &Details {
+                emails: vec![],
+                home: None,
+                raw_login: None,
+                login: None,
+                hosts: vec![],
+                weak: vec![],
+            },
+            &emails,
+        )
     }
 
     // The real path of $HOME counts, even where it doesn't end in the login.
     #[test]
     fn the_real_home_path_is_found() {
-        let m = Matcher::new(&Details {
-            emails: vec![],
-            home: Some("/srv/me".into()),
-            raw_login: Some("jdoe".into()),
-            login: Some("jdoe".into()),
-            hosts: vec![],
-            weak: vec![],
-        });
+        let m = Matcher::new(
+            &Details {
+                emails: vec![],
+                home: Some("/srv/me".into()),
+                raw_login: Some("jdoe".into()),
+                login: Some("jdoe".into()),
+                hosts: vec![],
+                weak: vec![],
+            },
+            &[],
+        );
         let kinds: Vec<_> = m.find("/srv/me/x").into_iter().map(|h| h.kind).collect();
         assert_eq!(kinds, vec![Kind::HomePath]);
     }

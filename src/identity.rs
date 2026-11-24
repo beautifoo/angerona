@@ -1,4 +1,4 @@
-use crate::{details::is_noreply, push::strip_signature};
+use crate::push::strip_signature;
 
 pub struct Ident {
     pub field: String,
@@ -108,59 +108,9 @@ pub fn read(raw: &[u8]) -> Object {
     }
 }
 
-// The people a push would name who are not the user: a tagger always, and the
-// committer of a commit nobody has published yet (the author is kept, as a
-// rebase or a patch keeps one). Noreply addresses carry nothing personal.
-pub fn foreign<'a>(o: &'a Object, unpublished: bool, own: &[String]) -> Vec<&'a Ident> {
-    let mut out = Vec::new();
-    for i in &o.idents {
-        let email = i.email.to_lowercase();
-        let checked = i.field == "tagger" || (unpublished && i.field == "committer");
-        if checked && !is_noreply(&email) && !own.iter().any(|e| e.to_lowercase() == email) {
-            out.push(i);
-        }
-    }
-    out
-}
-
-// Whether an email looks guessed by a machine, not chosen by a person: a local
-// domain (.local, .lan, .localdomain, .(none)) or none at all, which is git's
-// login@host fallback. An empty address names nobody.
-pub fn machine_guessed(email: &str) -> bool {
-    let lower = email.to_lowercase();
-    let Some((_, domain)) = lower.rsplit_once('@') else {
-        return false;
-    };
-    !domain.is_empty()
-        && (!domain.contains('.')
-            || [".local", ".lan", ".localdomain", ".(none)"]
-                .iter()
-                .any(|s| domain.ends_with(s)))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn machine_guessed_emails() {
-        for e in [
-            "x@host.local",
-            "x@host.lan",
-            "x@host.localdomain",
-            "x@host.(none)",
-            "x@host",
-        ] {
-            assert!(machine_guessed(e), "{e}");
-        }
-    }
-
-    #[test]
-    fn chosen_and_empty_emails_are_not_machine_guessed() {
-        for e in ["x@corp.example", "x@example.com", ""] {
-            assert!(!machine_guessed(e), "{e:?}");
-        }
-    }
 
     fn fields(o: &Object) -> Vec<(&str, &str)> {
         o.idents
@@ -198,48 +148,5 @@ mod tests {
     #[test]
     fn a_truncated_object_does_not_panic() {
         assert_eq!(read(b"author \xff<").idents.len(), 0);
-    }
-
-    fn commit(author: &str, committer: &str) -> Object {
-        read(
-            format!("author X <{author}> 1 +0000\ncommitter Y <{committer}> 1 +0000\n\nm\n")
-                .as_bytes(),
-        )
-    }
-
-    #[test]
-    fn own_committer_and_foreign_author_give_none() {
-        let o = commit("bob@corp.example", "me@home.example");
-        assert!(foreign(&o, true, &["me@home.example".to_string()]).is_empty());
-    }
-
-    #[test]
-    fn a_foreign_committer_of_unpublished_gives_one() {
-        let o = commit("me@home.example", "bob@corp.example");
-        assert_eq!(foreign(&o, true, &["me@home.example".to_string()]).len(), 1);
-    }
-
-    #[test]
-    fn a_foreign_committer_of_published_gives_none() {
-        let o = commit("me@home.example", "bob@corp.example");
-        assert!(foreign(&o, false, &["me@home.example".to_string()]).is_empty());
-    }
-
-    #[test]
-    fn a_foreign_tagger_gives_one_either_way() {
-        let o = read(b"object 0\ntagger T <bob@corp.example> 1 +0000\n\nv1\n");
-        assert_eq!(foreign(&o, false, &[]).len(), 1);
-    }
-
-    #[test]
-    fn a_noreply_committer_gives_none() {
-        let o = commit("me@home.example", "1+me@users.noreply.github.com");
-        assert!(foreign(&o, true, &[]).is_empty());
-    }
-
-    #[test]
-    fn own_emails_compare_lowercased() {
-        let o = commit("a@x.example", "Me@Home.Example");
-        assert!(foreign(&o, true, &["me@home.example".to_string()]).is_empty());
     }
 }

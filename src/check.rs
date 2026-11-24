@@ -1,6 +1,6 @@
 use crate::{
     added::commit_items,
-    identity::{self, foreign},
+    identity,
     matcher::{Hit, Kind as HitKind, Matcher},
     push::{Outgoing, RefLine, read},
     text::{Item, Label, blob_item, name_item},
@@ -23,7 +23,9 @@ pub const IN_REF: &str = "push under another name: git push <remote> HEAD:refs/h
 // One personal detail, where it is, and how to take it out. `at`, `what` and
 // `hint` are printed; `kind`, `address` and `ident` say the same as data: the
 // address the detail is, if it is one, and the commit or tag header field it
-// sits in, if it does.
+// sits in, if it does. `unpublished` is the commit's, and `named` marks the
+// address a committer or tagger field names, read from the field, not found by
+// the matcher: the verdict decides whether it counts.
 pub struct Finding {
     pub at: String,
     pub what: String,
@@ -31,6 +33,8 @@ pub struct Finding {
     pub kind: HitKind,
     pub address: Option<String>,
     pub ident: Option<(Kind, String, String)>,
+    pub unpublished: bool,
+    pub named: bool,
 }
 
 impl Finding {
@@ -50,16 +54,10 @@ impl Finding {
             kind: h.kind,
             address: h.address.clone(),
             ident: None,
+            unpublished: false,
+            named: false,
         }
     }
-}
-
-// Whether a finding is one of these lowercased addresses, whatever rule found
-// it.
-pub fn quotes_any(f: &Finding, addresses: &[String]) -> bool {
-    f.address
-        .as_ref()
-        .is_some_and(|a| addresses.contains(&a.to_lowercase()))
 }
 
 // Each hit in an item, at the place its label names.
@@ -81,18 +79,12 @@ pub fn item_findings(m: &Matcher, object: &str, item: &Item, hint: &'static str)
 // Who a commit or tag names, and what its message says. A trailer is part of
 // the message, so it is found there, with the hint that fixes a message; the
 // header identities are matched on their own, and the other headers, such as
-// a merged tag's, together as one. Another person's email counts
-// only where identity::foreign says. Anything in a tag is fixed by making
-// the tag again; a commit's committer, by a rebase that keeps the author.
-// The other headers count as one field, "header", so a scan folds an address
-// there into the address's line.
-fn object_findings(
-    raw: &[u8],
-    id: ObjectId,
-    unpublished: bool,
-    m: &Matcher,
-    own: &[String],
-) -> Vec<Finding> {
+// a merged tag's, together as one. Each committer and tagger also gives the
+// address it names; the verdict decides whether another person's counts.
+// Anything in a tag is fixed by making the tag again; a commit's committer, by
+// a rebase that keeps the author. The other headers count as one field,
+// "header", so a scan folds an address there into the address's line.
+fn object_findings(raw: &[u8], id: ObjectId, m: &Matcher) -> Vec<Finding> {
     let is_tag = raw.starts_with(b"object ");
     let kind = if is_tag { Kind::Tag } else { Kind::Commit };
     let hash = id.to_hex_with_len(7).to_string();
@@ -138,15 +130,19 @@ fn object_findings(
     };
     let message_hint = if is_tag { IN_TAG } else { IN_MESSAGE };
     found.extend(item_findings(m, &object, &message, message_hint));
-    for i in foreign(&o, unpublished, own) {
-        found.push(Finding {
-            at: format!("{object} {}", i.field),
-            what: format!("email {}", i.email),
-            hint: ident_hint(&i.field),
-            kind: HitKind::Email,
-            address: Some(i.email.clone()),
-            ident: Some((kind, hash.clone(), i.field.clone())),
-        });
+    for i in &o.idents {
+        if ["committer", "tagger"].contains(&i.field.as_str()) {
+            found.push(Finding {
+                at: format!("{object} {}", i.field),
+                what: format!("email {}", i.email),
+                hint: ident_hint(&i.field),
+                kind: HitKind::Email,
+                address: Some(i.email.clone()),
+                ident: Some((kind, hash.clone(), i.field.clone())),
+                unpublished: false,
+                named: true,
+            });
+        }
     }
     found
 }
@@ -158,7 +154,6 @@ pub fn commit_findings(
     id: ObjectId,
     unpublished: bool,
     m: &Matcher,
-    own: &[String],
 ) -> Result<Vec<Finding>, Box<dyn Error>> {
     let hash = repo.object_hash();
     let raw = read(repo, id)?.data;
@@ -177,7 +172,10 @@ pub fn commit_findings(
     for item in commit_items(repo, tree, &parent_trees)? {
         found.extend(item_findings(m, &object, &item, IN_FILE));
     }
-    found.extend(object_findings(&raw, id, unpublished, m, own));
+    found.extend(object_findings(&raw, id, m));
+    for f in &mut found {
+        f.unpublished = unpublished;
+    }
     Ok(found)
 }
 
@@ -187,10 +185,9 @@ pub fn tag_findings(
     repo: &gix::Repository,
     id: ObjectId,
     m: &Matcher,
-    own: &[String],
 ) -> Result<Vec<Finding>, Box<dyn Error>> {
     let raw = read(repo, id)?.data;
-    let mut found = object_findings(&raw, id, false, m, own);
+    let mut found = object_findings(&raw, id, m);
     let target = TagRefIter::from_bytes(&raw, repo.object_hash()).target_id()?;
     found.extend(blob_findings(repo, target, m)?);
     Ok(found)
@@ -234,14 +231,13 @@ pub fn push_findings(
     out: &Outgoing,
     refs: &[RefLine],
     m: &Matcher,
-    own: &[String],
 ) -> Result<Vec<Finding>, Box<dyn Error>> {
     let mut found = Vec::new();
     for (id, unpublished) in &out.commits {
-        found.extend(commit_findings(repo, *id, *unpublished, m, own)?);
+        found.extend(commit_findings(repo, *id, *unpublished, m)?);
     }
     for id in &out.tags {
-        found.extend(tag_findings(repo, *id, m, own)?);
+        found.extend(tag_findings(repo, *id, m)?);
     }
     for id in &out.blobs {
         found.extend(blob_findings(repo, *id, m)?);
@@ -273,22 +269,41 @@ pub fn render(f: &[Finding]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::details::Details;
+    use crate::{
+        details::Details,
+        verdict::{EmailFacts, Mode, Outside, Verdict},
+    };
 
     const ME: &str = "me@home.example";
 
+    // The hints a public push of an unpublished commit gives.
     fn hints(raw: &str) -> Vec<&'static str> {
-        let m = Matcher::new(&Details {
-            emails: vec![(ME.into(), "test".into())],
+        let details = Details {
+            emails: vec![],
             home: None,
             raw_login: Some("jdoe".into()),
             login: None,
             hosts: vec![],
             weak: vec![],
-        });
+        };
+        let m = Matcher::new(&details, &[ME.to_string()]);
+        let v = Verdict::new(
+            EmailFacts {
+                own: vec![ME.to_string()],
+                repo_email: None,
+                outside: Outside::Unset,
+                login: Some("jdoe".into()),
+            },
+            Mode::Push { public: true },
+        );
         let id = ObjectId::null(gix::hash::Kind::Sha1);
-        object_findings(raw.as_bytes(), id, true, &m, &[ME.to_string()])
-            .iter()
+        object_findings(raw.as_bytes(), id, &m)
+            .into_iter()
+            .map(|f| Finding {
+                unpublished: true,
+                ..f
+            })
+            .filter(|f| v.keeps(f))
             .map(|f| f.hint)
             .collect()
     }
@@ -335,13 +350,6 @@ mod tests {
     fn an_identity_line_without_an_email_is_matched() {
         let raw = "tree 0\nauthor /Users/jdoe 1 +0000\ncommitter C <1+c@users.noreply.github.com> 1 +0000\n\nm\n";
         assert_eq!(hints(raw), vec![IN_HEADER]);
-    }
-
-    #[test]
-    fn quotes_any_reads_past_the_kind_and_case() {
-        let h = Hit::new(1, HitKind::Login, "JDoe@jdoes-laptop.local".to_string());
-        let f = Finding::new("x".to_string(), &h, IN_FILE);
-        assert!(quotes_any(&f, &["jdoe@jdoes-laptop.local".to_string()]));
     }
 
     #[test]

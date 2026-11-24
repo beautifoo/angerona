@@ -121,14 +121,17 @@ mod tests {
     }
 
     fn matcher() -> Matcher {
-        Matcher::new(&Details {
-            emails: vec![("me@home.example".into(), "test".into())],
-            home: Some("/Users/jdoe".into()),
-            raw_login: Some("jdoe".into()),
-            login: Some("jdoe".into()),
-            hosts: vec![],
-            weak: vec![],
-        })
+        Matcher::new(
+            &Details {
+                emails: vec![],
+                home: Some("/Users/jdoe".into()),
+                raw_login: Some("jdoe".into()),
+                login: Some("jdoe".into()),
+                hosts: vec![],
+                weak: vec![],
+            },
+            &["me@home.example".to_string()],
+        )
     }
 
     fn kinds(bytes: &[u8]) -> Vec<Kind> {

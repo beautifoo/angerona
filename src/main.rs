@@ -21,6 +21,7 @@ use std::{
     path::Path,
     process::exit,
 };
+use verdict::{Mode, Verdict};
 
 fn fail(reason: &str) -> ! {
     eprintln!("angerona: {reason}, refusing to push");
@@ -60,16 +61,11 @@ fn check_push(remote: &str, url: &str) -> i32 {
         _ => (true, None),
     };
     let held = push::held(&repo, remote, url, public, advert);
-    let (mut details, skip) = details_here();
-    if !public {
-        details.emails.clear();
-    }
-    let m = matcher::Matcher::new(&details);
-    let own: Vec<String> = details.emails.iter().map(|(e, _)| e.clone()).collect();
+    let (m, v) = matcher_and_verdict(Mode::Push { public });
     let mut found = push::outgoing(&repo, &refs, &held)
-        .and_then(|out| check::push_findings(&repo, &out, &refs, &m, &own))
+        .and_then(|out| check::push_findings(&repo, &out, &refs, &m))
         .unwrap_or_else(|e| fail(&format!("git failed reading the push ({e})")));
-    found.retain(|f| !check::quotes_any(f, &skip) && (public || f.kind != matcher::Kind::Email));
+    found.retain(|f| v.keeps(f));
     if found.is_empty() {
         return 0;
     }
@@ -88,15 +84,12 @@ fn check_push(remote: &str, url: &str) -> i32 {
     }
 }
 
-// Your details, less the repo's own email, which comes back too, to drop from
-// what another rule finds.
-fn details_here() -> (details::Details, Vec<String>) {
-    let mut details = details::discover(&details::machine());
-    let skip: Vec<String> = verdict::repo_own_email(&details::email_facts())
-        .into_iter()
-        .collect();
-    details.emails.retain(|(e, _)| !skip.contains(e));
-    (details, skip)
+// The verdict on which email a finding may name in this mode, and a matcher
+// for your details and the emails it says to look for.
+fn matcher_and_verdict(mode: Mode) -> (matcher::Matcher, Verdict) {
+    let details = details::discover(&details::machine());
+    let v = Verdict::new(details::email_facts(&details), mode);
+    (matcher::Matcher::new(&details, &v.emails_to_match()), v)
 }
 
 // A URL that can never be probed is asked about on every push, and nothing
@@ -116,17 +109,8 @@ fn scan(all_emails: bool) -> i32 {
             return 1;
         }
     };
-    let (details, skip) = details_here();
-    let m = matcher::Matcher::new(&details);
-    let own: Vec<String> = details.emails.iter().map(|(e, _)| e.clone()).collect();
-    scan::run(
-        &repo,
-        &m,
-        &own,
-        &skip,
-        details.raw_login.as_deref(),
-        all_emails,
-    )
+    let (m, v) = matcher_and_verdict(Mode::Scan { all_emails });
+    scan::run(&repo, &m, &v)
 }
 
 fn main() {
