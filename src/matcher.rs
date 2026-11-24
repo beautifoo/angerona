@@ -1,4 +1,4 @@
-use crate::details::{Details, is_noreply};
+use crate::details::{Details, is_address, is_noreply};
 use regex::{Captures, Regex};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -9,12 +9,31 @@ pub enum Kind {
     Host,
 }
 
-// `text` is the matched span as found, so a report can quote it.
+// `text` is the matched span as found, so a report can quote it. `address` is
+// the address it is, if it is one: an own email as found, or a login hit
+// shaped like an address, such as a login@host prompt.
 #[derive(Debug, PartialEq)]
 pub struct Hit {
     pub line: usize,
     pub kind: Kind,
     pub text: String,
+    pub address: Option<String>,
+}
+
+impl Hit {
+    pub fn new(line: usize, kind: Kind, text: String) -> Hit {
+        let address = match kind {
+            Kind::Email => Some(text.clone()),
+            Kind::Login if is_address(&text) => Some(text.clone()),
+            _ => None,
+        };
+        Hit {
+            line,
+            kind,
+            text,
+            address,
+        }
+    }
 }
 
 // Built once, then asked about every line, path, identity and message.
@@ -156,11 +175,11 @@ impl Matcher {
                 continue;
             }
             end = b;
-            hits.push(Hit {
-                line: text[..a].matches('\n').count() + 1,
+            hits.push(Hit::new(
+                text[..a].matches('\n').count() + 1,
                 kind,
-                text: text[a..b].to_string(),
-            });
+                text[a..b].to_string(),
+            ));
         }
         hits
     }
@@ -178,11 +197,7 @@ impl Matcher {
             .as_deref()
             .is_some_and(|l| l.eq_ignore_ascii_case(first))
         {
-            hits.push(Hit {
-                line: 1,
-                kind: Kind::Login,
-                text: first.to_string(),
-            });
+            hits.push(Hit::new(1, Kind::Login, first.to_string()));
         }
         hits
     }
@@ -382,13 +397,34 @@ mod tests {
     #[test]
     fn a_shorter_own_email_does_not_hide_a_longer_one() {
         let hits = with_emails(&["me@x.co", "me@x.com"]).find("me@x.com");
+        assert_eq!(hits, vec![Hit::new(1, Kind::Email, "me@x.com".into())]);
+    }
+
+    // An own email keeps a %40 as found; a home path or machine name is no
+    // address, and a login only in a login@host prompt.
+    #[test]
+    fn a_hit_has_an_address_only_where_it_is_one() {
+        let texts = [
+            "me%40home.example",
+            "jdoe@jdoes-laptop",
+            "x@jdoes-laptop.local",
+            "App.xcodeproj/xcuserdata/jdoe.xcuserdatad/x",
+            "/Users/jdoe/x",
+        ];
+        let got: Vec<Vec<Option<String>>> = texts
+            .iter()
+            .map(|t| matcher().find(t).into_iter().map(|h| h.address).collect())
+            .collect();
+        let some = |a: &str| vec![Some(a.to_string())];
         assert_eq!(
-            hits,
-            vec![Hit {
-                line: 1,
-                kind: Kind::Email,
-                text: "me@x.com".into()
-            }]
+            got,
+            vec![
+                some("me%40home.example"),
+                some("jdoe@jdoes-laptop"),
+                vec![None],
+                vec![None],
+                vec![None],
+            ]
         );
     }
 

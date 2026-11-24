@@ -1,6 +1,5 @@
 use crate::{
     added::commit_items,
-    details::is_address,
     identity::{self, foreign},
     matcher::{Hit, Kind as HitKind, Matcher},
     push::{Outgoing, RefLine, read},
@@ -49,7 +48,7 @@ impl Finding {
             what: format!("{kind} {}", h.text),
             hint,
             kind: h.kind,
-            address: (h.kind == HitKind::Email || is_address(&h.text)).then(|| h.text.clone()),
+            address: h.address.clone(),
             ident: None,
         }
     }
@@ -340,22 +339,14 @@ mod tests {
 
     #[test]
     fn quotes_any_reads_past_the_kind_and_case() {
-        let h = Hit {
-            line: 1,
-            kind: HitKind::Login,
-            text: "JDoe@jdoes-laptop.local".to_string(),
-        };
+        let h = Hit::new(1, HitKind::Login, "JDoe@jdoes-laptop.local".to_string());
         let f = Finding::new("x".to_string(), &h, IN_FILE);
         assert!(quotes_any(&f, &["jdoe@jdoes-laptop.local".to_string()]));
     }
 
     #[test]
     fn render_gives_each_hint_once() {
-        let h = Hit {
-            line: 1,
-            kind: HitKind::HomePath,
-            text: "/Users/zebra".to_string(),
-        };
+        let h = Hit::new(1, HitKind::HomePath, "/Users/zebra".to_string());
         let f = |at: &str| Finding::new(at.to_string(), &h, IN_FILE);
         assert_eq!(
             render(&[f("commit 1 a:1"), f("commit 1 b:2")]),
