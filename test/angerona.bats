@@ -1008,6 +1008,43 @@ good_setup() {
 	[ "$output" = work@corp.example ]
 }
 
+@test "doctor marks the repo's own email in its list" {
+	no_gh
+	good_setup
+	repo
+	git config user.email me@home.example
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	has "  me@home.example ($BATS_TEST_TMPDIR/work.gitconfig; this repo's own, never reported here)"
+	lacks "  me@home.example (this repo's own"
+}
+
+@test "doctor lists the repo's own email set only in the repo" {
+	no_gh
+	good_setup
+	repo
+	git config user.email me@other.example
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	has "  me@other.example (this repo's own, never reported here)"
+	has "  me@home.example ($BATS_TEST_TMPDIR/work.gitconfig)"
+}
+
+@test "doctor does not list a noreply repo email" {
+	no_gh
+	good_setup
+	repo
+	git config user.email 2+other@users.noreply.github.com
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	lacks "2+other@users.noreply.github.com"
+}
+
+@test "doctor marks no email outside a repo" {
+	no_gh
+	good_setup
+	cd "$BATS_TEST_TMPDIR"
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	lacks "this repo's own"
+}
+
 @test "doctor ends with the scan reminder" {
 	fake_gh 'printf "%s\n" Me@Personal.Example'
 	good_setup

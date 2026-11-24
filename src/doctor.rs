@@ -1,4 +1,4 @@
-use crate::{details, setup};
+use crate::{details, setup, verdict};
 use std::{
     env, fs,
     os::unix::fs::PermissionsExt,
@@ -172,9 +172,22 @@ pub fn run() -> i32 {
         println!("angerona: the hook finds angerona at {}", tilde(&path));
     }
 
+    // The repo's own email is never reported here, not even as a committer, so
+    // the list says so, and adds it when only the repo sets it. A noreply one
+    // is left out, as the list leaves out every noreply address.
+    const OWN_HERE: &str = "this repo's own, never reported here";
+    let own_here = verdict::repo_own_email(&details::email_facts(&details))
+        .filter(|e| !details::is_noreply(e));
     println!("angerona: emails kept out of pushes:");
     for (email, place) in &details.emails {
-        println!("  {email} ({place})");
+        if own_here.as_ref() == Some(email) {
+            println!("  {email} ({place}; {OWN_HERE})");
+        } else {
+            println!("  {email} ({place})");
+        }
+    }
+    if let Some(e) = own_here.filter(|e| !details.emails.iter().any(|(x, _)| x == e)) {
+        println!("  {e} ({OWN_HERE})");
     }
     println!(
         "angerona: note: turn on your forge's email privacy setting (GitHub: Keep my email addresses private), since commits made on the website skip the hook"

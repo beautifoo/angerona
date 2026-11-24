@@ -50,6 +50,9 @@ angerona doctor
 that is an email, a machine name too short or generic to match, and your git
 version.
 It exits 1 when it finds a problem; notes alone don't fail.
+It lists the emails it keeps out of pushes and where it found each. In a repo
+with its own email, it marks that email, or adds it when only the repo sets it:
+that email is never reported in that repo.
 
 ## What counts as you
 

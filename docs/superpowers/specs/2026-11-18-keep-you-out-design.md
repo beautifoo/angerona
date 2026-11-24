@@ -100,6 +100,7 @@ Checks and prints what to fix:
 - `user.useConfigOnly = true` (stops git guessing `login@host`).
 - An identity per host via `includeIf` (gitdir or `hasconfig:remote.*.url`).
 - The global `user.email` is a noreply address; lists every email angerona found and where.
+- In a repo with its own email, marks it in that list as never reported there (see the repo's own email under Emails); one set only in the repo's own config is added to the list with that mark, unless it is a noreply address.
 - With `--features github-emails` only: the emails file exists and matches what `gh api user/emails` returns now; when it differs or is missing, says to run `angerona setup` again (skipped with a note when `gh` can't answer).
 - The hook is installed, git is ≥ 2.54.
 - angerona is on the PATH doctor runs with (the PATH the hook gets for pushes from that shell); missing is a problem.
