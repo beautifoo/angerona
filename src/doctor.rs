@@ -168,8 +168,13 @@ pub fn run() -> i32 {
     if problems.is_empty() {
         println!("angerona: no problems found");
     }
+    // Only this shell's PATH is known here: an app started from the macOS Dock
+    // gets launchd's, which no process can read (see the README).
     if let Some(path) = found {
-        println!("angerona: the hook finds angerona at {}", tilde(&path));
+        println!(
+            "angerona: pushes from this shell find angerona at {}",
+            tilde(&path)
+        );
     }
 
     // The repo's own email is never reported here, not even as a committer, so

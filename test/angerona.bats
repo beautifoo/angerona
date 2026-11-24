@@ -1022,7 +1022,7 @@ good_setup() {
 	ln -s "$AG" "$HOME/ag/angerona"
 	PATH=$HOME/ag:$BATS_TEST_TMPDIR/bin run "$AG" doctor
 	[ "$status" -eq 0 ]
-	has "the hook finds angerona at ~/ag/angerona"
+	has "pushes from this shell find angerona at ~/ag/angerona"
 }
 
 @test "doctor flags angerona missing from PATH" {
