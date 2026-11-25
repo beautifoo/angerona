@@ -162,7 +162,7 @@ Checks and prints what to fix:
 - Pure renames add nothing; renamed and edited files compare with their source.
 - Short and generic logins get the machine-name floor.
 - No migration from the old hooks: nothing was released, and no machine runs them.
-- Accepted and documented gaps: "internal" enterprise repos count as private, so emails pushed there are not checked; LFS content, compressed files (zip, gzip, images) and commits made on the forge's website are not checked; a commit already on a private remote and pushed to a public one is checked for your emails and paths but not for others' emails.
+- Accepted and documented gaps: "internal" enterprise repos count as private, so emails pushed there are not checked; so does a public repo whose server answers the plain request with 401, 403 or 404, such as Gerrit's authenticated `/a/` URLs (`https://chromium.googlesource.com/a/chromium/src` answers 401); LFS content, compressed files (zip, gzip, images) and commits made on the forge's website are not checked; a commit already on a private remote and pushed to a public one is checked for your emails and paths but not for others' emails.
 - ADR 0001 (one hook name per event) no longer applies: there is one hook. Mark it superseded.
 
 ## Left to the builder

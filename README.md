@@ -171,6 +171,8 @@ Exit 0 means nothing found, 1 means findings or an error.
 
 - "Internal" repos of an enterprise host count as private, so emails pushed
   there aren't checked.
+- A public repo whose server refuses the plain request (401, 403 or 404),
+  such as a Gerrit `/a/` URL, counts as private too.
 - LFS content and compressed files (zip, gzip, images) aren't read.
 - Commits made on the forge's website skip the hook. Turn on the forge's email
   privacy setting (GitHub: Keep my email addresses private).
