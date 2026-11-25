@@ -11,6 +11,7 @@ use std::{collections::HashSet, error::Error};
 pub struct RefLine {
     pub sha: String,
     pub remote_ref: String,
+    pub new: bool,
 }
 
 // A pre-push line, "<local ref> <sha> <remote ref> <remote sha>", where only
@@ -18,16 +19,21 @@ pub struct RefLine {
 // the right, and the local ref, which never leaves, is not kept. A deletion,
 // whose sha is all zeros, publishes nothing and gives None. (Its local ref
 // reads "(delete)", but a ref can have that name.) A line too short to hold a
-// sha gives an empty one, which the walk refuses.
+// sha gives an empty one, which the walk refuses. The remote's sha is all
+// zeros when it lacks the ref: only then is the remote ref `new`.
 pub fn parse_ref_line(line: &str) -> Option<RefLine> {
     let mut fields = line.rsplitn(4, ' ');
-    fields.next(); // the remote's sha
+    let new = fields.next().unwrap_or("").chars().all(|c| c == '0');
     let remote_ref = fields.next().unwrap_or("").to_string();
     let sha = fields.next().unwrap_or("").to_string();
     if !sha.is_empty() && sha.chars().all(|c| c == '0') {
         return None;
     }
-    Some(RefLine { sha, remote_ref })
+    Some(RefLine {
+        sha,
+        remote_ref,
+        new,
+    })
 }
 
 // A commit as stored, less its signature's base64 lines, which can spell a
@@ -328,8 +334,13 @@ mod tests {
     fn reads_ref_lines_from_the_right() {
         let r = parse_ref_line(&format!("refs/heads/a b 1234567 refs/heads/x {Z}")).unwrap();
         assert_eq!(
-            (r.sha.as_str(), r.remote_ref.as_str()),
-            ("1234567", "refs/heads/x")
+            (r.sha.as_str(), r.remote_ref.as_str(), r.new),
+            ("1234567", "refs/heads/x", true)
+        );
+        assert!(
+            !parse_ref_line("a 1234567 refs/heads/x 89abcde")
+                .unwrap()
+                .new
         );
         assert!(parse_ref_line(&format!("(delete) {Z} refs/heads/x 1234567")).is_none());
     }

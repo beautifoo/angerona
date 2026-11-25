@@ -392,6 +392,16 @@ push_unchecked() {
 	[ "$status" -eq 0 ]
 }
 
+@test "a branch name the remote already has is not checked again" {
+	repo
+	git switch -q -c jdoe/fix
+	commit a.txt hello
+	push_unchecked jdoe/fix
+	commit b.txt more
+	run git push origin jdoe/fix
+	[ "$status" -eq 0 ]
+}
+
 @test "a home path to a private remote blocks" {
 	repo
 	commit a.txt /Users/jdoe/x

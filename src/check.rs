@@ -226,7 +226,8 @@ fn blob_findings(
 }
 
 // Everything a push sends that names you: its commits, tags, and blobs, and
-// the names it gives the remote's refs. The local name never leaves.
+// the names of the refs it creates on the remote. A name the remote already
+// has is there already, and the local name never leaves.
 pub fn push_findings(
     repo: &gix::Repository,
     out: &Outgoing,
@@ -243,7 +244,7 @@ pub fn push_findings(
     for id in &out.blobs {
         found.extend(blob_findings(repo, *id, m)?);
     }
-    for r in refs {
+    for r in refs.iter().filter(|r| r.new) {
         for h in m.find_ref(&r.remote_ref) {
             found.push(Finding::new(format!("ref {}", r.remote_ref), &h, IN_REF));
         }
