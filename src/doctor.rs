@@ -3,7 +3,7 @@ use std::{
     env, fs,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Output},
 };
 
 const NEW_GIT: &str = "install git 2.54 or later, e.g. brew install git";
@@ -23,30 +23,32 @@ fn tilde(path: &str) -> String {
     }
 }
 
+// git config on the global files and what they include, read as a push from
+// any repo reads them: from / with no GIT_DIR, so a plain include counts and
+// no includeIf on a gitdir or branch matches.
+fn git_global_config(args: &[&str]) -> Option<Output> {
+    Command::new("git")
+        .args(["config", "--global", "--includes"])
+        .args(args)
+        .current_dir("/")
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .output()
+        .ok()
+}
+
 // The value of one global git config key; None when unset or git can't run.
 fn git_global(key: &str) -> Option<String> {
-    let out = Command::new("git")
-        .args(["config", "--global", "--get", key])
-        .output()
-        .ok()?;
+    let out = git_global_config(&["--get", key])?;
     let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
     (out.status.success() && !value.is_empty()).then_some(value)
 }
 
-// A global boolean as git reads it, with yes, on or 1 for true, and set in an
-// included file as well; false when unset.
+// A global boolean as git reads it, with yes, on or 1 for true; false when
+// unset.
 fn git_global_true(key: &str) -> bool {
-    Command::new("git")
-        .args([
-            "config",
-            "--global",
-            "--includes",
-            "--type=bool",
-            "--get",
-            key,
-        ])
-        .output()
-        .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "true")
+    git_global_config(&["--type=bool", "--get", key])
+        .is_some_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "true")
 }
 
 // The addresses the emails file holds, lowercased and sorted; None when the
@@ -88,10 +90,8 @@ pub fn run() -> i32 {
         }
     }
 
-    let includes = Command::new("git")
-        .args(["config", "--global", "--get-regexp", "^includeif\\."])
-        .output()
-        .is_ok_and(|o| o.status.success() && !o.stdout.is_empty());
+    let includes = git_global_config(&["--get-regexp", "^includeif\\."])
+        .is_some_and(|o| o.status.success() && !o.stdout.is_empty());
     if !includes {
         notes += "no includeIf in your global git config; give each host its own email with includeIf \"hasconfig:remote.*.url:git@<host>:*/**\" and a path to a file that sets user.email\n";
     }

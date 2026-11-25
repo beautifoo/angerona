@@ -66,6 +66,9 @@ angerona doctor
 `includeIf`, the hook, that angerona can be found on your PATH, a signing key
 that is an email, a machine name too short or generic to match, and your git
 version.
+It reads your global git config with every file it includes, from outside any
+repo, so a hook or email kept in an included dotfiles file counts, and one an
+`includeIf` sets only for some folders or branches doesn't.
 It exits 1 when it finds a problem; notes alone don't fail.
 It lists the emails it keeps out of pushes and where it found each. In a repo
 with its own email, it marks that email, or adds it when only the repo sets it:

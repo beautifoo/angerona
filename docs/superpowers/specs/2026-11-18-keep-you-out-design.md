@@ -95,14 +95,14 @@ Run by hand in an existing repo, typically before making it public. Checks every
 
 ### `angerona doctor`
 
-Checks and prints what to fix:
+Checks and prints what to fix. It reads the global config with every plain `include`, from `/` with no `GIT_DIR`, so no `includeIf` on a gitdir or branch matches (one on `hasconfig:remote.*.url` only when the global config itself names a matching remote):
 
 - `user.useConfigOnly = true` (stops git guessing `login@host`).
 - An identity per host via `includeIf` (gitdir or `hasconfig:remote.*.url`).
 - The global `user.email` is a noreply address; lists every email angerona found and where.
 - In a repo with its own email, marks it in that list as never reported there (see the repo's own email under Emails); one set only in the repo's own config is added to the list with that mark, unless it is a noreply address.
 - With `--features github-emails` only: the emails file exists and matches what `gh api user/emails` returns now; when it differs or is missing, says to run `angerona setup` again (skipped with a note when `gh` can't answer).
-- The hook is installed, git is ≥ 2.54.
+- The hook is installed in the global config or a file it includes, git is ≥ 2.54.
 - angerona is on the PATH doctor runs with (the PATH the hook gets for pushes from that shell); missing is a problem.
 - `user.signingkey` (or gpg's default key) is not an email address (a GPG key given as an email embeds that email in every signature); suggest the fingerprint.
 - The machine name is unique enough to match (see above).
@@ -162,6 +162,7 @@ Checks and prints what to fix:
 - Pure renames add nothing; renamed and edited files compare with their source.
 - Short and generic logins get the machine-name floor.
 - No migration from the old hooks: nothing was released, and no machine runs them.
+- `doctor` reads the global config with its includes, from outside any repo (2026-11-25): it reported a hook kept in an included dotfiles file as missing, passed a real email set there, and read `useConfigOnly` with the `includeIf` of the repo it ran in.
 - Accepted and documented gaps: "internal" enterprise repos count as private, so emails pushed there are not checked; so does a public repo whose server answers the plain request with 401, 403 or 404, such as Gerrit's authenticated `/a/` URLs (`https://chromium.googlesource.com/a/chromium/src` answers 401); LFS content, compressed files (zip, gzip, images) and commits made on the forge's website are not checked; a commit already on a private remote and pushed to a public one is checked for your emails and paths but not for others' emails.
 - ADR 0001 (one hook name per event) no longer applies: there is one hook. Mark it superseded.
 

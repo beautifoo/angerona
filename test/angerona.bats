@@ -1025,6 +1025,54 @@ good_setup() {
 	has "hook.angerona.command"
 }
 
+@test "doctor finds the hook in an included file" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	git config --global --remove-section hook.angerona
+	GIT_CONFIG_GLOBAL=$BATS_TEST_TMPDIR/dots.gitconfig PATH=$BATS_TEST_TMPDIR/bin "$AG" setup >/dev/null
+	git config --global include.path "$BATS_TEST_TMPDIR/dots.gitconfig"
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	[ "$status" -eq 0 ]
+	lacks "hook.angerona"
+}
+
+@test "doctor flags a hook set only for some repos, from one of them" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	git config --global --remove-section hook.angerona
+	GIT_CONFIG_GLOBAL=$BATS_TEST_TMPDIR/dots.gitconfig PATH=$BATS_TEST_TMPDIR/bin "$AG" setup >/dev/null
+	git config --global "includeIf.gitdir:$BATS_TEST_TMPDIR/r/.path" "$BATS_TEST_TMPDIR/dots.gitconfig"
+	repo
+	git config --unset hook.angerona.event
+	git config --unset hook.angerona.command
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "hook.angerona.command"
+}
+
+@test "doctor flags a real email in an included file" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	git config --global --unset user.email
+	git config --file "$BATS_TEST_TMPDIR/identity.gitconfig" user.email me@real.example
+	git config --global include.path "$BATS_TEST_TMPDIR/identity.gitconfig"
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "me@real.example is a real address"
+}
+
+@test "doctor reads useConfigOnly as a push from any repo does" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	git config --global --unset user.useConfigOnly
+	git config --file "$BATS_TEST_TMPDIR/r.gitconfig" user.useConfigOnly true
+	git config --global "includeIf.gitdir:$BATS_TEST_TMPDIR/r/.path" "$BATS_TEST_TMPDIR/r.gitconfig"
+	repo
+	PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	[ "$status" -eq 1 ]
+	has "user.useConfigOnly is not true"
+}
+
 @test "doctor reports where angerona is found" {
 	fake_gh 'printf "%s\n" Me@Personal.Example'
 	good_setup
