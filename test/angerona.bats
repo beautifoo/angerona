@@ -1143,6 +1143,27 @@ good_setup() {
 	has "note: login dev is too common to match"
 }
 
+@test "doctor notes when no machine name is found" {
+	fake_gh 'printf "%s\n" Me@Personal.Example'
+	good_setup
+	ANGERONA_TEST_HOSTS= PATH=$BATS_TEST_TMPDIR/bin run "$AG" doctor
+	has "note: no machine name found, so it is not checked"
+}
+
+@test "the machine name is found without a hostname program" {
+	unset ANGERONA_TEST_HOSTS
+	no_gh
+	if PATH=$BATS_TEST_TMPDIR/bin "$AG" doctor | grep -q "note: host .* is too short or common"; then
+		skip "this machine's name is too short or common to match"
+	fi
+	repo
+	commit a.txt "x@$(uname -n | cut -d. -f1).local"
+	# bin holds only git: no hostname, uname or scutil.
+	PATH=$BATS_TEST_TMPDIR/bin run git push origin main
+	[ "$status" -eq 1 ]
+	has "a.txt:1  machine name"
+}
+
 @test "doctor with no identity says how to set one" {
 	fake_gh 'printf "%s\n" Me@Personal.Example'
 	good_setup

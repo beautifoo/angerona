@@ -158,6 +158,9 @@ pub fn run() -> i32 {
         }
         notes += "\n";
     }
+    if machine.hosts.is_empty() {
+        notes += "no machine name found, so it is not checked\n";
+    }
 
     for line in problems.lines() {
         println!("angerona: problem: {line}");

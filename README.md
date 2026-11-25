@@ -64,8 +64,8 @@ angerona doctor
 `doctor` prints problems, each with its fix, and notes. It checks
 `user.useConfigOnly`, a noreply global `user.email`, an identity per host with
 `includeIf`, the hook, that angerona can be found on your PATH, a signing key
-that is an email, a machine name too short or generic to match, and your git
-version.
+that is an email, a machine name missing or too short or generic to match,
+and your git version.
 It reads your global git config with every file it includes, from outside any
 repo, so a hook or email kept in an included dotfiles file counts, and one an
 `includeIf` sets only for some folders or branches doesn't.

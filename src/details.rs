@@ -110,7 +110,13 @@ pub fn machine() -> Machine {
             .map(str::to_string)
             .collect(),
         _ => {
-            let mut hosts: Vec<String> = command_line("hostname", &[]).into_iter().collect();
+            // The name hostname prints, read with no program: Arch base and
+            // Fedora ship no hostname.
+            let node = rustix::system::uname()
+                .nodename()
+                .to_string_lossy()
+                .into_owned();
+            let mut hosts: Vec<String> = Some(node).filter(|n| !n.is_empty()).into_iter().collect();
             if cfg!(target_os = "macos") {
                 for key in ["HostName", "LocalHostName"] {
                     hosts.extend(command_line("scutil", &["--get", key]));

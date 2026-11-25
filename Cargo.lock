@@ -24,6 +24,7 @@ dependencies = [
  "curl",
  "gix",
  "regex",
+ "rustix",
 ]
 
 [[package]]
