@@ -490,6 +490,44 @@ push_unchecked() {
 	has "refusing to push"
 }
 
+# A fork sync from a blobless clone: the fork has upstream's first commit, and
+# upstream's new blob, which names you, was never fetched here.
+blobless_fork_sync() {
+	git init -q --bare "$BATS_TEST_TMPDIR/upstream.git"
+	git -C "$BATS_TEST_TMPDIR/upstream.git" config uploadpack.allowFilter true
+	git init -q --bare "$BATS_TEST_TMPDIR/fork.git"
+	git clone -q "$BATS_TEST_TMPDIR/upstream.git" "$BATS_TEST_TMPDIR/up" 2>/dev/null
+	cd "$BATS_TEST_TMPDIR/up"
+	commit a.txt one
+	git push -q origin main
+	git push -q "$BATS_TEST_TMPDIR/fork.git" main
+	git clone -q --filter=blob:none "file://$BATS_TEST_TMPDIR/upstream.git" "$BATS_TEST_TMPDIR/r"
+	commit b.txt /Users/jdoe/x
+	git push -q origin main
+	cd "$BATS_TEST_TMPDIR/r"
+	git fetch -q origin
+	git remote add fork "$BATS_TEST_TMPDIR/fork.git"
+	git fetch -q fork
+	git config hook.angerona.event pre-push
+	git config hook.angerona.command "$AG check-push"
+}
+
+@test "a blobless clone says how to fetch what a push lacks" {
+	blobless_fork_sync
+	run git push fork origin/main:refs/heads/main
+	[ "$status" -eq 1 ]
+	has "git backfill --no-sparse <remote>/<branch>..<commit>"
+}
+
+@test "a blobless clone checks a push once that fetch has run" {
+	git backfill -h 2>&1 | grep -q revision-range || skip "git backfill takes a range from git 2.55"
+	blobless_fork_sync
+	git backfill --no-sparse fork/main..origin/main
+	run git push fork origin/main:refs/heads/main
+	[ "$status" -eq 1 ]
+	has "b.txt:1  home path /Users/jdoe"
+}
+
 # Runs the command with a terminal that answers with INPUT, as the hook's /dev/tty.
 with_tty() {
 	local input=$1
@@ -895,7 +933,13 @@ HOOK='f() { if command -v angerona >/dev/null 2>&1; then angerona check-push "$@
 	git clone -q --depth 1 "file://$PWD" "$BATS_TEST_TMPDIR/s"
 	cd "$BATS_TEST_TMPDIR/s"
 	run "$AG" scan
-	has "this clone is shallow or partial"
+	has "this clone is shallow; run git fetch --unshallow"
+}
+
+@test "scan says how to fetch what a partial clone lacks" {
+	blobless_fork_sync
+	run "$AG" scan
+	has "git backfill --no-sparse --all"
 }
 
 @test "scan never changes the repo" {

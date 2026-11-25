@@ -63,7 +63,18 @@ fn check_push(remote: &str, url: &str) -> i32 {
     let (m, v) = matcher_and_verdict(Mode::Push { public });
     let mut found = push::outgoing(&repo, &refs, &held)
         .and_then(|out| check::push_findings(&repo, &out, &refs, &m))
-        .unwrap_or_else(|e| fail(&format!("git failed reading the push ({e})")));
+        .unwrap_or_else(|e| {
+            // Only the range the push sends: git backfill alone fetches the
+            // whole history HEAD reaches.
+            if repo::partial(&repo) {
+                eprintln!(
+                    "angerona: this partial clone may lack what the push sends, and the hook \
+                     never downloads it; fetch it first (git 2.55 or later): \
+                     git backfill --no-sparse <remote>/<branch>..<commit>"
+                );
+            }
+            fail(&format!("git failed reading the push ({e})"))
+        });
     found.retain(|f| v.keeps(f));
     if found.is_empty() {
         return 0;

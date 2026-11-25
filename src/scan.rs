@@ -2,6 +2,7 @@ use crate::{
     check::{Finding, IN_REF, commit_findings, item_findings, tag_findings},
     matcher::{Kind as HitKind, Matcher},
     push::{parents, published, read},
+    repo,
     text::{blob_item, name_item},
     verdict::Verdict,
 };
@@ -16,19 +17,10 @@ const FILTER: &str = "fix history with git filter-repo (keep its mailmap file ou
 const PUSHED: &str =
     "already pushed: fix it in a new commit; rewriting shared history needs everyone who has it";
 const IN_CURRENT: &str = "edit the file and commit";
-const PARTIAL: &str = "angerona: this clone is shallow or partial; run git fetch --unshallow \
-                       (or a full clone) first, or the report misses old commits";
-
-// Whether the clone lacks old commits: shallow, or partial by its config.
-fn incomplete(repo: &gix::Repository, shallow: &HashSet<ObjectId>) -> bool {
-    let config = repo.config_snapshot();
-    let promisor = repo.remote_names().iter().any(|n| {
-        config
-            .boolean(format!("remote.{n}.promisor").as_str())
-            .unwrap_or(false)
-    });
-    !shallow.is_empty() || promisor || config.string("extensions.partialclone").is_some()
-}
+const SHALLOW: &str = "angerona: this clone is shallow; run git fetch --unshallow (or a full \
+                       clone) first, or the report misses old commits";
+const PARTIAL: &str = "angerona: this clone is partial, and scan never downloads what it lacks; \
+                       run git backfill --no-sparse --all (git 2.55 or later) first";
 
 // Every commit and tag reachable from any ref, each once, and every ref name,
 // as unpublished, but a commit a remote already has gets the hint for that;
@@ -239,7 +231,10 @@ pub fn run(repo: &gix::Repository, m: &Matcher, v: &Verdict) -> i32 {
             return 1;
         }
     };
-    if incomplete(repo, &shallow) {
+    if !shallow.is_empty() {
+        println!("{SHALLOW}");
+    }
+    if repo::partial(repo) {
         println!("{PARTIAL}");
     }
     match findings(repo, m, &shallow) {

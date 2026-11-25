@@ -56,6 +56,18 @@ pub fn open_at(start: &Path, config: Config) -> Result<gix::Repository, gix::Err
     Ok(repo)
 }
 
+// Whether the clone is partial, by its config: what it lacks reads as
+// missing, since gix never fetches it.
+pub fn partial(repo: &gix::Repository) -> bool {
+    let config = repo.config_snapshot();
+    let promisor = repo.remote_names().iter().any(|n| {
+        config
+            .boolean(format!("remote.{n}.promisor").as_str())
+            .unwrap_or(false)
+    });
+    promisor || config.string("extensions.partialclone").is_some()
+}
+
 // The repository git would use in dir, with every config source but the git
 // binary's own, which only running git can find.
 pub fn open(dir: &Path) -> Result<gix::Repository, Box<dyn Error>> {

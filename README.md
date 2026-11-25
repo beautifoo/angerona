@@ -140,7 +140,11 @@ Treat <url> as public? [Y/n]
 and saves nothing. Answering n treats the repo as private. With no terminal to
 ask on, it checks the push as public. When the host can't be found, doesn't
 answer in time, or answers with a server error or 429, it never asks: it checks
-the push as public. Any error while reading the push blocks it.
+the push as public. Any error while reading the push blocks it. A partial
+clone (`--filter=blob:none`) may lack what the push sends, and the hook never
+downloads it: fetch only that first, with git 2.55 or later,
+`git backfill --no-sparse <remote>/<branch>..<commit>`. A plain
+`git backfill` fetches the whole history.
 
 To push once past the hook:
 
@@ -165,8 +169,9 @@ your login, as an old machine of yours would make them (`<login>@host`,
 it reports, and tells you how to fix it. History is fixed with `git filter-repo`, keeping its mailmap file
 outside the repo so the old address isn't published. A commit a remote already
 has gets a new commit instead, since rewriting shared history needs everyone
-who has it, and a current file is edited and committed. A shallow or partial
-clone gets a warning to fetch the full history first.
+who has it, and a current file is edited and committed. A shallow clone gets a
+warning to fetch the full history first, and a partial clone one to fetch what
+it lacks with `git backfill --no-sparse --all`.
 
 Exit 0 means nothing found, 1 means findings or an error.
 
